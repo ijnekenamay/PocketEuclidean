@@ -1,0 +1,62 @@
+#pragma once
+
+#include "audio/AdEnvelope.h"
+#include "audio/AudioParameterQueue.h"
+#include "audio/Mixer.h"
+#include "audio/OnePoleLowPass.h"
+#include "audio/SamplerVoicePool.h"
+#include "audio/SynthVoice.h"
+#include "sequencer/Sequencer.h"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+
+namespace pocket::audio {
+
+class SamplerMixerRenderer {
+public:
+    static constexpr std::size_t MaxRenderFrames = 4096;
+
+    SamplerMixerRenderer(Sequencer& sequencer,
+                         SamplerVoicePool& voices,
+                         Mixer& mixer,
+                         std::uint8_t masterVolumePercent = 100) noexcept;
+    SamplerMixerRenderer(Sequencer& sequencer,
+                         SamplerVoicePool& samplerVoices,
+                         SynthVoiceRack& synthVoices,
+                         Mixer& mixer,
+                         std::uint8_t masterVolumePercent = 100) noexcept;
+
+    // Setup-only; do not call while the audio callback is rendering.
+    bool setMasterVolume(std::uint8_t volumePercent) noexcept;
+    bool isRealtimeSafe() const noexcept;
+    bool trigger(const TickResult& tick, std::uint32_t sampleRate) noexcept;
+    bool applyCommand(const AudioParameterCommand& command,
+                      std::uint32_t sampleRate) noexcept;
+
+    bool render(float* interleavedStereo,
+                std::uint32_t outputOffset,
+                std::uint32_t frameCount,
+                std::uint32_t sampleRate) noexcept;
+
+private:
+    Sequencer& sequencer_;
+    SamplerVoicePool& voices_;
+    SynthVoiceRack* synthVoices_ = nullptr;
+    Mixer& mixer_;
+    std::uint8_t masterVolumePercent_;
+    std::array<std::array<float, MaxRenderFrames>, TrackCount> trackBuffers_{};
+    std::array<AdEnvelope, TrackCount> envelopes_{};
+    std::array<OnePoleLowPass, TrackCount> filters_{};
+    std::array<TrackFilterSettings, TrackCount> lastFilterSettings_{};
+    std::array<std::uint32_t, TrackCount> filterSampleRates_{};
+    std::array<AdEnvelopeSettings, TrackCount> envelopeSettings_{};
+    std::array<TrackFilterSettings, TrackCount> filterSettings_{};
+    std::array<float, MaxRenderFrames> outputLeft_{};
+    std::array<float, MaxRenderFrames> outputRight_{};
+    std::array<StereoInputBuffer, TrackCount> inputs_{};
+    std::array<TrackMixerSettings, TrackCount> settings_{};
+};
+
+} // namespace pocket::audio
