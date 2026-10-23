@@ -29,6 +29,7 @@ AudioCallbackProcessor::AudioCallbackProcessor(
 
 bool AudioCallbackProcessor::isRealtimeSafe() const noexcept {
     return visualEvents_.isLockFree() && callbackFailureCount_.is_lock_free() &&
+           (sequencerQueue_ == nullptr || sequencerQueue_->isLockFree()) &&
            (renderer_ == nullptr || renderer_->isRealtimeSafe()) &&
            (parameterQueue_ == nullptr ||
             (renderer_ != nullptr && parameterQueue_->isLockFree()));
@@ -69,6 +70,14 @@ bool AudioCallbackProcessor::process(float* interleavedStereo,
             if (!renderer_->applyCommand(command, sampleRate)) {
                 return false;
             }
+        }
+    }
+
+    if (sequencerQueue_ != nullptr) {
+        SequencerCommand command;
+        while (sequencerQueue_->pop(command)) {
+            // A rejected edit must not stop later ones from being applied.
+            (void)applySequencerCommand(sequencer_, command);
         }
     }
 

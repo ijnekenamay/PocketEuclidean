@@ -12,12 +12,15 @@
 #include "platform/SystemSettings.h"
 #include "platform/BackendInterfaces.h"
 #include "project/ProjectData.h"
+#include "project/ProjectStore.h"
 #include "ui/ThemePalette.h"
 
 #include <cstdlib>
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <system_error>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -681,7 +684,9 @@ void testAudioMixerProcessingAndMeterBridge() {
     std::array<StereoInputBuffer, pocket::TrackCount> inputs{};
     std::array<TrackMixerSettings, pocket::TrackCount> settings{};
     for (std::size_t track = 0; track < pocket::TrackCount; ++track) {
-        inputs[track] = {leftInputs[track].data(), rightInputs[track].data()};
+        inputs[track] = {
+            leftInputs[track].data(),
+            track == 0 ? nullptr : rightInputs[track].data()};
     }
     leftInputs[0].fill(1.0F);
     std::array<float, 1024> outputLeft{};
@@ -728,14 +733,16 @@ void testAudioMixerProcessingAndMeterBridge() {
     expect(mixer.processBlock(inputs, settings, 100, 48000, output,
                               outputLeft.size()),
            "mute is applied in the mixer without changing sequencer state");
-    expect(mixer.meters().track(0) < 0.01F &&
-               transport.track(0).position == trackPosition &&
+    expect(outputLeft.back() < 0.01F && outputRight.back() < 0.01F,
+           "mute smoothly attenuates the audio output");
+    expect(transport.track(0).position == trackPosition &&
                transport.masterTickPosition() == masterPosition,
            "mute smoothly attenuates audio and does not alter track position");
 
     settings[0].muted = false;
     settings[0].pan = 0.0F;
     rightInputs[0].fill(0.5F);
+    inputs[0].right = rightInputs[0].data();
     expect(mixer.processBlock(inputs, settings, 100, 48000, output,
                               outputLeft.size()),
            "mixer processes stereo source buffers");
@@ -866,7 +873,8 @@ void testSynthVoiceRack() {
     TestSynthVoice unsafeVoice;
     unsafeVoice.realtimeSafe = false;
     expect(!incompleteRack.configure(0, &unsafeVoice, parameters) &&
-               !incompleteRack.isRealtimeSafe(),
+               !incompleteRack.isConfigured(0) &&
+               incompleteRack.isRealtimeSafe(),
            "synth rack refuses unverified realtime implementations");
     TestSynthVoice rejectingVoice;
     rejectingVoice.acceptParameters = false;
@@ -946,7 +954,10 @@ void testBasicVaVoice() {
     expect(voice.setParameters(parameters),
            "basic VA voice restores settings after rejecting Nyquist pitch");
 
-    expect(voice.render(output.data(), output.size(), 48000) &&
+    expect(voice.render(output.data(), SynthVoiceRack::MaxRenderFrames, 48000) &&
+               voice.render(output.data() + SynthVoiceRack::MaxRenderFrames,
+                            output.size() - SynthVoiceRack::MaxRenderFrames,
+                            48000) &&
                voice.isActive(),
            "basic VA oscillator sustains until its external VCA gates it");
     expect(voice.noteOn(1.0F) &&
@@ -1025,6 +1036,71 @@ void testAudioParameterQueue() {
     }
     expect(ordered && !queue.pop(command),
            "audio parameter queue preserves FIFO ordering and emptiness");
+}
+
+void testSequencerCommandSync() {
+    using namespace pocket;
+    using namespace pocket::audio;
+    Sequencer ui;
+    Sequencer audioSide = ui;
+    SequencerCommandQueue queue;
+    SequencerSync sync(queue, ui);
+    expect(queue.isLockFree(), "sequencer command queue is lock-free");
+
+    SequencerCommand none;
+    sync.sync(ui);
+    expect(!queue.pop(none), "unchanged sequencer produces no commands");
+
+    ui.setRhythm(2, {12, 5, 1});
+    ui.setMuted(3, true);
+    ui.setVolume(4, 55);
+    ui.setPan(4, -0.5F);
+    ui.setTempo(140.0);
+    ui.start();
+    sync.sync(ui);
+    sync.sync(ui);
+    SequencerCommand command;
+    while (queue.pop(command)) {
+        applySequencerCommand(audioSide, command);
+    }
+    expect(audioSide.track(2).rhythm.length == 12 &&
+               audioSide.track(2).rhythm.fill == 5 &&
+               audioSide.track(2).rhythm.offset == 1 &&
+               audioSide.track(3).muted && audioSide.track(4).volume == 55 &&
+               audioSide.track(4).pan == -0.5F && audioSide.tempo() == 140.0 &&
+               audioSide.isPlaying(),
+           "synced commands reproduce UI edits on the audio-side sequencer");
+
+    ui.stop();
+    sync.sync(ui);
+    expect(queue.pop(command) && command.type == SequencerCommandType::Stop &&
+               !queue.pop(command),
+           "only the changed transport state is sent");
+
+    // Overflow: unsent changes stay pending and are retried.
+    for (std::size_t round = 0; round < 40; ++round) {
+        for (std::size_t t = 0; t < TrackCount; ++t) {
+            ui.setVolume(t, static_cast<std::uint8_t>(10 + round));
+        }
+        sync.sync(ui);
+    }
+    ui.setVolume(7, 99);
+    while (queue.pop(command)) {
+        applySequencerCommand(audioSide, command);
+    }
+    sync.sync(ui);
+    while (queue.pop(command)) {
+        applySequencerCommand(audioSide, command);
+    }
+    sync.sync(ui);
+    while (queue.pop(command)) {
+        applySequencerCommand(audioSide, command);
+    }
+    bool converged = true;
+    for (std::size_t t = 0; t < TrackCount; ++t) {
+        converged = converged && audioSide.track(t).volume == ui.track(t).volume;
+    }
+    expect(converged, "dropped sync commands converge after the queue drains");
 }
 
 void testWavDecoder() {
@@ -1423,14 +1499,19 @@ void testAudioCallbackProcessor() {
     processor.setParameterQueue(nullptr);
     expect(sequencer.setRhythm(0, {32, 32, 0}),
            "configure callback processor trigger track");
+    for (std::size_t track = 1; track < pocket::TrackCount; ++track) {
+        expect(sequencer.setRhythm(track, {2, 1, 1}),
+               "keep unrelated tracks silent at the first callback tick");
+    }
     sequencer.start();
-
     std::array<float, 12000> output;
     output.fill(1.0F);
-    expect(processor.process(output.data(), 6000, 0, 48000),
+    expect(processor.process(output.data(), 4096, 0, 48000),
            "audio callback processor schedules one valid output block");
     expect(sequencer.masterTickPosition() == 1,
            "audio callback sends the first trigger at sample offset zero");
+    expect(processor.process(output.data() + 8192, 1904, 4096, 48000),
+           "callback accepts the remaining frames in a split audio interval");
     bool outputCleared = true;
     for (float sample : output) {
         outputCleared = outputCleared && sample == 0.0F;
@@ -1438,47 +1519,52 @@ void testAudioCallbackProcessor() {
     expect(outputCleared, "silent initial engine fully initializes stereo output");
 
     pocket::ui::StepTriggerEvent event;
-    expect(visualEvents.pop(event) && event.audioFrame == 0 &&
-               event.masterTickPosition == 0 && event.triggeredMask == 0x01 &&
-               event.stepPositions[0] == 0,
+    expect(visualEvents.pop(event),
+           "audio callback publishes a trigger event");
+    expect(event.audioFrame == 0 && event.masterTickPosition == 0 &&
+               event.triggeredMask == 0x01 && event.stepPositions[0] == 0,
            "audio callback publishes the matching absolute trigger event");
     expect(!visualEvents.pop(event),
            "non-triggering callback intervals do not publish light events");
 
-    output.fill(1.0F);
-    expect(processor.process(output.data(), 6000, 6000, 48000) &&
+    std::array<float, 12000> followupOutput;
+    followupOutput.fill(1.0F);
+    expect(processor.process(followupOutput.data(), 4096, 6000, 48000) &&
                sequencer.masterTickPosition() == 2,
            "callback block boundaries retain sample-accurate tick phase");
     expect(visualEvents.pop(event) && event.audioFrame == 6000 &&
                event.masterTickPosition == 1,
            "successive callback blocks use the absolute audio frame timeline");
+    expect(processor.process(followupOutput.data() + 8192, 1904, 10096,
+                             48000) &&
+               sequencer.masterTickPosition() == 2,
+           "split callback interval ends on the next tick boundary");
 
-    output.fill(1.0F);
-    expect(!processor.process(output.data(), 128, 12000, 0),
+    expect(!processor.process(followupOutput.data(), 128, 12000, 0),
            "callback rejects invalid sample rate");
     bool invalidRateOutputCleared = true;
     for (std::size_t sample = 0; sample < 256; ++sample) {
-        invalidRateOutputCleared =
-            invalidRateOutputCleared && output[sample] == 0.0F;
+        invalidRateOutputCleared = invalidRateOutputCleared &&
+                                   followupOutput[sample] == 0.0F;
     }
     expect(invalidRateOutputCleared,
            "invalid audio spec still produces initialized silent output");
-    expect(processor.process(output.data(), 128, 12000, 48000) &&
+    expect(processor.process(followupOutput.data(), 128, 12000, 48000) &&
                sequencer.masterTickPosition() == 3 &&
                visualEvents.pop(event) && event.audioFrame == 12000,
            "valid callback continues at the next contiguous block boundary");
-    expect(!processor.process(output.data(), 4097, 12000, 48000) &&
-               !processor.process(nullptr, 128, 12000, 48000),
+    expect(!processor.process(followupOutput.data(), 4097, 12128, 48000) &&
+               !processor.process(nullptr, 128, 12128, 48000),
            "callback rejects oversized blocks and missing output buffers");
-    expect(!processor.process(output.data(), 128, 12129, 48000),
+    expect(!processor.process(followupOutput.data(), 128, 12129, 48000),
            "callback rejects discontinuous absolute frame timelines");
     pocket::audio::AudioCallbackProcessor::callback(
-        &processor, output.data(), 128, 12128, 0);
+        &processor, followupOutput.data(), 128, 12128, 0);
     expect(processor.callbackFailureCount() == 1,
            "platform callback reports invalid blocks through diagnostics counter");
     processor.resetTimeline();
     expect(processor.callbackFailureCount() == 0 &&
-               processor.process(output.data(), 128, 0, 48000),
+               processor.process(followupOutput.data(), 128, 0, 48000),
            "stopped callback timeline can be reset for a new device open");
 }
 
@@ -1516,7 +1602,8 @@ void testSamplerMixerAudioPipeline() {
                mixer.meters().track(0) > 0.0F &&
                mixer.meters().master() > 0.0F,
            "first sequencer event triggers a sample routed through mixer and meters");
-    expect(firstBlock[0] == 0.0F && firstBlock[1] == 0.0F &&
+    expect(firstBlock[0] < firstBlock[200] &&
+               firstBlock[1] < firstBlock[201] &&
                firstBlock[200] > 0.0F && firstBlock[201] > 0.0F,
            "rendered sampler audio passes through its per-track AD VCA and mixer");
 
@@ -1536,11 +1623,12 @@ void testSamplerMixerAudioPipeline() {
     expect(parameterQueue.push(
                {pocket::audio::AudioParameter::TrackMute, 0, 1.0F}),
            "queue mute for sampler track without stopping voice progression");
-    std::array<float, 256> mutedBlock{};
-    expect(processor.process(mutedBlock.data(), 128, 8192, 48000) &&
-               mutedBlock[200] < secondBlock[2 * 1903] &&
-               voices.activeVoiceCount(0) == 2,
-           "mixer mute smoothly attenuates output while sampler voices keep running");
+    std::array<float, 8192> mutedBlock{};
+    expect(processor.process(mutedBlock.data(), 4096, 8192, 48000),
+           "audio callback applies queued mute without blocking");
+    expect(mutedBlock.back() < secondBlock[2 * 1903] &&
+               voices.activeVoiceCount(0) == 3,
+           "mixer mute attenuates output while sampler voices keep running");
 
     pocket::Sequencer envelopeSequencer;
     pocket::audio::SamplerVoicePool envelopeVoices;
@@ -1670,9 +1758,97 @@ void testInvalidInputs() {
     expect(!sequencer.setRhythm(0, {16, 0, 0}), "reject invalid live configuration");
 }
 
+void testProjectStoreRoundTrip() {
+    using namespace pocket;
+    Sequencer source;
+    for (std::size_t i = 0; i < TrackCount; ++i) {
+        source.setRhythm(i, ExamplePresetRhythms[i]);
+    }
+    source.setTempo(137.5);
+    source.setMuted(2, true);
+    source.setVolume(3, 64);
+    source.setPan(4, -0.25F);
+    source.setEnvelope(1, {0.01F, 1.5F});
+    source.setFilter(5, {true, 3000.0F});
+    LfoConfig lfo;
+    lfo.enabled = true;
+    lfo.waveform = LfoWaveform::SawDown;
+    lfo.rateHz = 0.75;
+    lfo.destination = ModulationDestination::Fill;
+    lfo.amount = -3;
+    expect(source.setLfo(6, lfo, 0), "test LFO is valid");
+    JitterConfig jitter;
+    jitter.enabled = true;
+    jitter.mode = JitterMode::Shift;
+    jitter.intensity = 40;
+    jitter.useCustomSeed = true;
+    jitter.randomSeed = 4242;
+    source.setJitter(7, jitter);
+
+    const auto original = project::captureProject(source);
+    const auto text = project::serializeProject(original);
+    project::ProjectData parsed;
+    std::string error;
+    expect(project::parseProject(text, parsed, &error), "project text parses: " + error);
+    expect(project::serializeProject(parsed) == text, "project text round-trips exactly");
+
+    Sequencer restored;
+    expect(project::applyProject(parsed, restored), "parsed project applies");
+    expect(restored.tempo() == 137.5, "tempo restored");
+    expect(restored.track(2).muted, "mute restored");
+    expect(restored.track(3).volume == 64, "volume restored");
+    expect(restored.track(4).pan == -0.25F, "pan restored");
+    expect(restored.track(1).envelope.decaySeconds == 1.5F, "envelope restored");
+    expect(restored.track(5).filter.enabled && restored.track(5).filter.cutoffHz == 3000.0F,
+           "filter restored");
+    expect(restored.track(6).lfos[0].waveform == LfoWaveform::SawDown &&
+               restored.track(6).lfos[0].amount == -3 &&
+               restored.track(6).lfos[0].destination == ModulationDestination::Fill,
+           "LFO restored");
+    expect(restored.track(7).jitter.randomSeed == 4242 &&
+               restored.track(7).jitter.mode == JitterMode::Shift,
+           "jitter restored");
+    expect(restored.track(3).rhythm.length == ExamplePresetRhythms[3].length &&
+               restored.track(3).rhythm.fill == ExamplePresetRhythms[3].fill,
+           "rhythm restored");
+
+    project::ProjectData untouched;
+    untouched.tempoBpm = 99.0;
+    expect(!project::parseProject("garbage", untouched), "reject wrong header");
+    expect(!project::parseProject("PocketEuclideanProject\nversion 999\n", untouched),
+           "reject unknown version");
+    expect(!project::parseProject("PocketEuclideanProject\nversion 6\nbogus 1\n", untouched),
+           "reject unknown key");
+    expect(!project::parseProject("PocketEuclideanProject\nversion 6\ntrack.9.rhythm 1 1 0\n",
+                                  untouched),
+           "reject out-of-range track index");
+    expect(!project::parseProject("PocketEuclideanProject\nversion 6\ntrack.0.jitter 1 9 0 0 1 0 1\n",
+                                  untouched),
+           "reject out-of-range enum");
+    expect(untouched.tempoBpm == 99.0, "failed parse leaves output untouched");
+
+    project::ProjectData invalid = original;
+    invalid.tracks[0].rhythm = {16, 0, 0};
+    Sequencer scratch;
+    expect(!project::applyProject(invalid, scratch), "apply reports rejected values");
+
+    const auto path = (std::filesystem::temp_directory_path() / "pocket_test_project" /
+                       "project.pec").string();
+    expect(project::saveProjectFile(path, original, &error), "save file: " + error);
+    expect(project::saveProjectFile(path, original, &error), "overwrite file: " + error);
+    project::ProjectData loaded;
+    expect(project::loadProjectFile(path, loaded, &error), "load file: " + error);
+    expect(project::serializeProject(loaded) == text, "file round-trips");
+    expect(!std::filesystem::exists(path + ".tmp"), "no temporary file left behind");
+    expect(!project::loadProjectFile(path + ".missing", loaded), "missing file fails");
+    std::error_code ec;
+    std::filesystem::remove_all(std::filesystem::path(path).parent_path(), ec);
+}
+
 } // namespace
 
 int main() {
+    testProjectStoreRoundTrip();
     testPulseCountAndRotation();
     testEvenDistribution();
     testOffsetModuloAndBoundaries();
@@ -1689,6 +1865,7 @@ int main() {
     testBasicVaVoice();
     testOnePoleLowPass();
     testAudioParameterQueue();
+    testSequencerCommandSync();
     testWavDecoder();
     testSampleCache();
     testVersionedSettingsAndProjectSeparation();

@@ -148,6 +148,15 @@ public:
             }
         }
     }
+    // Re-reads the Sequencer after the project layer replaced its contents.
+    void resyncFromSequencer() noexcept {
+        for (std::size_t track = 0; track < TrackCount; ++track) {
+            const auto& source = sequencer_.track(track);
+            state_.audioTrackSettings[track] = {
+                source.volume, source.pan, source.muted, source.envelope,
+                source.filter};
+        }
+    }
     ProjectRequest takeProjectRequest() noexcept;
     void setModified(bool modified) noexcept { state_.modified = modified; }
 

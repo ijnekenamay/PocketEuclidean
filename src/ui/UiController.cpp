@@ -135,8 +135,10 @@ void UiController::dispatchModal(Action action) {
                 state_.modal = Modal::None;
                 break;
             case ProjectMenuItem::SaveProjectAs:
+                // No file selector yet: the app layer handles this request
+                // with a single project slot.
                 requestProjectAction(ProjectRequest::SaveProjectAs);
-                state_.modal = Modal::FileSelector;
+                state_.modal = Modal::None;
                 break;
             }
         }
@@ -827,10 +829,6 @@ void UiController::resolveDiscardChoice() noexcept {
 }
 
 void UiController::executePendingProjectRequest() noexcept {
-    if (state_.pendingProjectRequest == ProjectRequest::LoadProject) {
-        state_.modal = Modal::FileSelector;
-        return;
-    }
     requestProjectAction(state_.pendingProjectRequest);
     state_.pendingProjectRequest = ProjectRequest::None;
     state_.modal = Modal::None;

@@ -4,6 +4,16 @@ project(PocketEuclidean VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+option(POCKET_BUILD_APP "Build the desktop app shell target" ON)
+option(PORTMASTER_BUILD "Build the handheld PortMaster binary (Release, no tests, SDL2 required)" OFF)
+
+if(PORTMASTER_BUILD)
+    if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+        set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+    endif()
+    set(BUILD_TESTING OFF CACHE BOOL "Tests are not built for PortMaster" FORCE)
+    set(POCKET_BUILD_APP ON CACHE BOOL "" FORCE)
+endif()
 
 add_library(pocket_euclidean
     src/audio/AdEnvelope.cpp
@@ -22,6 +32,7 @@ add_library(pocket_euclidean
     src/sequencer/Modulation.cpp
     src/sequencer/Sequencer.cpp
     src/platform/SystemSettings.cpp
+    src/project/ProjectStore.cpp
     src/ui/InputMapping.cpp
     src/ui/MainScreenDrawList.cpp
     src/ui/MainScreenLayout.cpp
@@ -36,6 +47,41 @@ set_target_properties(pocket_euclidean PROPERTIES
     CXX_EXTENSIONS OFF
     POSITION_INDEPENDENT_CODE ON
 )
+
+if(POCKET_BUILD_APP)
+    add_executable(pocket_euclidean_app
+        src/app/main.cpp
+    )
+    target_link_libraries(pocket_euclidean_app PRIVATE pocket_euclidean)
+
+    find_package(SDL2 QUIET CONFIG)
+    if(NOT SDL2_FOUND)
+        find_package(SDL2 QUIET)
+    endif()
+    if(PORTMASTER_BUILD AND NOT SDL2_FOUND)
+        message(FATAL_ERROR
+            "PORTMASTER_BUILD needs SDL2 development files for the target "
+            "(set CMAKE_PREFIX_PATH / POCKET_SYSROOT).")
+    endif()
+
+    if(PORTMASTER_BUILD)
+        # PortMaster images differ in libstdc++ version; link it statically.
+        target_link_options(pocket_euclidean_app PRIVATE
+            -static-libstdc++ -static-libgcc -s)
+        set_target_properties(pocket_euclidean_app PROPERTIES
+            OUTPUT_NAME "pocketeuclidean.${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
+
+    if(SDL2_FOUND)
+        target_compile_definitions(pocket_euclidean_app PRIVATE POCKET_HAVE_SDL2=1)
+        if(TARGET SDL2::SDL2)
+            target_link_libraries(pocket_euclidean_app PRIVATE SDL2::SDL2)
+        endif()
+        if(TARGET SDL2::SDL2main)
+            target_link_libraries(pocket_euclidean_app PRIVATE SDL2::SDL2main)
+        endif()
+    endif()
+endif()
 
 include(CTest)
 if(BUILD_TESTING)

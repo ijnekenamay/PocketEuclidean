@@ -4,7 +4,7 @@
 
 **この文書の位置づけ:** 共有仕様で明示された要件を「要求」、仕様の未決事項に対して現行コードが選んだ値を「暫定決定」とする。暫定決定は、製品要求として確定したことを意味しない。仕様間で明白な矛盾は見当たらないが、未決事項と未検証事項は残っている。
 
-**引き継ぎ時の読み方:** 実装済みはソース上に存在することを示し、テスト成功や実機動作を自動的に意味しない。検証状態は「検証済み／未検証」を参照する。次に着手する優先作業は (1) デスクトップのネイティブビルドとCTest実行、(2) SDL2ホストと実音声デバイスへの接続、(3) UI shadowを含めたプロジェクトsnapshotの統合、(4) 再生中に編集するSequencer設定の安全な受け渡しである。スレッド所有権の詳細は [ARCHITECTURE.md](ARCHITECTURE.md)、実機ツールチェーンは [PLATFORMS.md](PLATFORMS.md) を参照する。
+**引き継ぎ時の読み方:** 実装済みはソース上に存在することを示し、テスト成功や実機動作を自動的に意味しない。検証状態は「検証済み／未検証」を参照する。Windows x86-64でのコアビルドとCTest実行は確認済み。次に着手する優先作業は (1) SDL2ホストと実音声デバイスへの接続、(2) UI shadowを含めたプロジェクトsnapshotの統合、(3) 再生中に編集するSequencer設定の安全な受け渡しである。スレッド所有権の詳細は [ARCHITECTURE.md](ARCHITECTURE.md)、実機ツールチェーンは [PLATFORMS.md](PLATFORMS.md) を参照する。
 
 ## 1. プロジェクト概要
 
@@ -115,7 +115,7 @@
 
 ### 未実装
 
-- **アプリ実行ファイルと SDL2 接続:** SDL 初期化、ウィンドウ／画面描画、実際のキーボード・GameController・Joystick イベント変換、オーディオデバイスの初期化は未実装。
+- **デスクトップ音声接続（Phase 4 開始）:** `src/app/SdlAudioBackend.h`が`IAudioBackend`をSDL2 audio（float32 stereo、周波数／バッファー変更許可）で実装し、SDLバッファーを4096フレーム以下の連続チャンクへ分割して`blockStartFrame`を単調に渡す。`src/app/DesktopAudioEngine.h`が`AudioCallbackProcessor`・`SamplerVoicePool`・`Mixer`・`SamplerMixerRenderer`・パラメーターSPSCキュー・`StepLightBank`を配線する。WAVローダー統合までの暫定として、トラック別の内蔵合成音（キック／ノイズ系／音程付きサイン）を使用する。再生は音声クロック駆動で、UIは`framesRendered`を基準に`StepLightBank`の発音照明を描画する（`--play`起動で確認）。SDL2音声が使えない場合は従来の125ms wall-clockティックによる視覚のみのフォールバックへ戻る。**Sequencer handoff:** UIとaudioはそれぞれ別の`Sequencer`を持つ。UI側の編集は`SequencerSync`が差分を検出し、容量256のSPSC lock-freeキュー（`src/audio/SequencerCommandQueue.h`）経由で、`AudioCallbackProcessor`がブロック先頭で音声側の`Sequencer`へ適用する（デバイスロック不使用。キュー満杯時は未送信分を次回syncで再送）。UI側`Sequencer`の再生位置は進まず、発音照明はイベントキュー由来。テスト追加済み（差分送信・満杯後の収束）。**PortMaster向け整備（未実機検証）:** `--fullscreen`（ネイティブ解像度・カーソル非表示）、`--rate`／`--buffer`（実機で音声設定を調整）、アクセラレーター付きレンダラーが使えない場合のソフトウェア描画フォールバック、Select+Start同時押しでの終了、`./samples`の自動読み込みを追加。CMakeに`PORTMASTER_BUILD`（Release、テスト無効、SDL2必須、libstdc++静的リンク、出力名`pocketeuclidean.<arch>`）を追加。`packaging/portmaster/pocketeuclidean/`にport.json、gameinfo.xml、README.md、起動スクリプト`Pocket Euclidean.sh`（公式ガイドの構成、gptokeybなし）、screenshot.png（PCの640×480描画。実機の画面ではない）、licenses／samplesのひな型を用意。640×480の描画は目視確認済み。AArch64クロスビルド、実機での起動／入力／音声／終了、ライセンスファイル同梱は未実施。 **AArch64クロスビルド（コンパイル確認済み・実行未確認）:** `scripts/build-portmaster-aarch64.sh`がzig 0.14.1（`aarch64-linux-gnu.2.28`）でSDL2（リンク用に2.32.10をソースからビルド）とアプリを`PORTMASTER_BUILD=ON`でビルドし、`pocketeuclidean.aarch64`（ELF 64-bit ARM aarch64、strip済み約720KB、動的依存は`libSDL2-2.0.so.0`・libc・libm・libpthread・libdlのみ、要求glibcは2.17まで、libc++は静的）と、スクリプト実行権付きの`pocketeuclidean.zip`（約281KB）を生成する。警告なし。WSL Ubuntuで確認。aarch64のローダー／ランタイムがホストに無いためQEMU等でも実行しておらず、実機（Brick Pro／R36S）での起動・SDL2の有無・音声は未確認。ライセンスファイルは未同梱（プロジェクト自体のライセンスが未決定）。**MIXERデスクトップ表示:** 全8トラックの音量／Pan／Muteとピークメーター、マスター行、選択中の編集項目を表示（メーターは`Mixer`の`PeakMeters`をUIスレッドで読み、即時アタック・約0.3秒リリースで平滑化。`--play --screen 3`で目視確認、1024×768）。**コールバック負荷計測:** `SdlAudioBackend`がチャンクごとの処理時間をバッファー時間比で記録し、終了時に平均／p99／最大／期限超過数をstderrへ出す。Windows開発機のSDL2（48kHz/480フレーム、`--play`、8トラック、60秒）で 5939チャンク、平均4.4%、p99 12%以下、最大20.8%、期限超過0（ビルド種別は既定のまま、Brick Pro実機の値ではない）。聴感・長時間の安定性は未確認。`--samples <dir>`でWAVをトラック1〜8へ読み込める（起動時のみ）。 **プロジェクト保存／読み込み:** `src/project/ProjectStore.{h,cpp}`がテキスト形式（`PocketEuclideanProject`ヘッダー、version 6）でテンポ・全8トラックのリズム／LFO×4／Jitter／Mute／音量／Pan／エンベロープ／フィルターを保存・復元する。パーサーは厳格（不明キー・範囲外の値・版違いは拒否し出力を変更しない）、保存は`.tmp`へ書いてからリネーム、読み込みは作業用Sequencerで検証してから適用する。アプリは`--data <dir>`（既定`./conf`、PortMaster起動スクリプトは`$GAMEDIR/conf/`を指定）の`project.pec`の1スロットを扱い、Project menuのNEW／LOAD／SAVE／SAVE ASと破棄確認に接続（ファイル選択UIは未実装のためLOAD／SAVE ASも同スロット）、起動時に存在すれば自動読み込みし、画面下部に結果（SAVED／LOADED等）を3秒表示する。往復・拒否・上書きのテスト追加済み、`--data`の読み込みと表示（77 BPM、T1=9ステップ）を目視確認。エフェクト設定はSequencer外のため値は保存されるが未接続。システム設定（テーマ・音声など）の永続化、ファイル選択UI、実機での保存先書き込みは未実施。 `pocket_euclidean_app`ターゲットを追加し、SDL2が検出された場合はウィンドウ作成・レンダラー・キーボード／GameController入力の論理アクション変換・6画面の基本描画を行う最小シェルを実装した。SDL2未検出時はheadlessフォールバックで起動し、明示メッセージを表示する。GameController未対応デバイス向けのSDL Joystick fallback（汎用ボタン0-9／ハット）、トリガー軸→L2/R2、抜き差し対応、未認識コントローラーのGUID診断ログ（stderr）を追加。テキスト描画（内蔵5x7ビットマップフォント、`src/app/BitmapFont.h`）を追加し、Mainのテンポ／再生状態／トラックラベル、EDIT／SOUND／MIXER／SYSTEMの項目名と値、MODULATIONの項目名と選択トラックのLFO1／Jitter現在値（`--screen 4`で目視確認、値の編集操作の実機確認は未実施）、Help／Project／破棄確認モーダルを描画する。Mainのデスクトップ描画に加え、`--capture`による1フレーム出力で6画面・Helpモーダル・480×320を目視確認済み（1024×768で項目名／値／選択下線が読める。画面内の文字サイズは統一）。ProjectMenu／破棄確認モーダル・1920×1080・実入力は目視未確認。実音声デバイス初期化は下記「デスクトップ音声接続」を参照。1024×768以外の可読性評価は未実施。
 - **実 UI:** [UI_DESIGN_POLICY.md](UI_DESIGN_POLICY.md) に準拠する1024×768基準の6画面描画は未実装。MAINのEuclideanパターンを主役にし、装飾コンテナやノブを避け、ステップ発音にはフレームレート非依存の滑らかな照明を使う。MIXERの8トラック列・メーター、現在位置・ミュート・楽器・変調有効値、フォーカス、HELP、SYSTEM、プロジェクト操作も未描画。
 - **MAIN画面のSDL描画:** 表示モデル・テーマ連動レイアウト・固定長描画コマンドはあるが、1024×768上の文字・背景・行・ステップバーの実描画は未実装。
 - **描画側イベント連携:** `AudioCallbackProcessor`から音声フレーム時刻付きイベントを有界SPSCキューへ発行し、ステップごとの照明状態へ渡す基盤を実装済み。実SDL音声デバイスへの接続、描画反映、実機での表示確認は未実装。
@@ -132,11 +132,13 @@
 
 ### 検証済み／未検証
 
-- 現在の環境で利用可能な ARM bare-metal C++ コンパイラーにより、コア、UI、テストの各 C++ ソースをオブジェクト単位でコンパイルできることを確認済み。
-- CMake の ARM toolchain テンプレートの構文を確認済み。
-- **自動テストは未実行。** ARM bare-metalコンパイラーを使い、コア／UI／テストの全翻訳単位を`-Wall -Wextra -Wpedantic -Werror`付きで構文検査し、個別にオブジェクトコンパイルできることを確認した。これはリンク・実行テストではない。デスクトップ向けCMakeビルドとCTestは引き続き必要。
-- SDL2アプリのビルド、デスクトップUI／音声、Brick Pro/NextUI/PortMasterのABI・起動・入力・保存・音声・終了、性能と長時間安定性は未検証。
-- したがって、現時点で「デスクトップまたはハンドヘルドで動作確認済み」とは扱わない。
+- Windows x86-64でLLVM-MinGW Clang 23.1.3、CMake 4.3.2、Ninjaを使ったネイティブCMakeビルドを確認済み。
+- **Windows自動テストを実行し、CTest 2/2件成功（2026-10-23）。** これはポータブルコアとテスト実行ファイルの確認であり、GUIアプリや実音声デバイスの動作確認ではない。
+- 現在の環境で利用可能な ARM bare-metal C++ コンパイラーにより、コア、UI、テストの各 C++ ソースをオブジェクト単位でコンパイルできることを確認済み。CMake の ARM toolchain テンプレートの構文も確認済み。
+- SDL2 2.32.10（MinGW開発パッケージ）でWindowsのSDL2アプリがビルドされ、ウィンドウが起動することは確認済み。ただし描画内容、キーボード／コントローラー実入力は目視・実機未確認。
+- Windows 上で SDL2 音声を48 kHz／480フレームで開き、3秒間再生してcallback failure 0・発音イベントdrop 0を確認し、発音照明の描画をスクリーンショットで確認した。実際の音の聴感、長時間安定性、レイテンシー、callback処理時間は未測定。
+- デスクトップUI／音声（上記以外）、Brick Pro/NextUI/PortMasterのABI・起動・入力・保存・音声・終了、性能と長時間安定性は未検証。
+- したがって、現時点で「Pocket Euclideanアプリがデスクトップまたはハンドヘルドで動作確認済み」とは扱わない。
 - Brick ProのRSS、サンプルキャッシュ、最大voice負荷、SDL描画時間、ALSA/SDLのcallback deadlineは実測していない。初期予算・合否条件は [PLATFORMS.md](PLATFORMS.md) を参照し、実機プロファイル後にのみ調整する。
 
 ## 5. 今後のロードマップ
@@ -145,7 +147,7 @@
 
 ### Phase 1 — 開発ビルドとテストを実行可能にする
 
-- デスクトップ向け C++17 コンパイラー／CMake generator を用意し、既存CMake設定を使って`cmake --build` と `ctest` を実行して失敗を修正する（最優先）。
+- Windows x86-64のコアビルドとCTest（2/2件）は確認済み。別のデスクトップコンパイラー／OS、および選定したSDK/sysrootでのクロスビルドは個別に検証する。
 - 可能なら CI にコア・UI のビルドとテストを追加する。
 - ARM toolchain ファイルの実際のクロスビルドを、対象とABIを確定したSDK／sysrootで確認する。`linux-armhf.cmake`は32-bit ARM hard-float用であり、Brick Pro向けではない。
 - 開発用に音声コールバック時間、プロセスRSS、voice数、描画時間を記録できる計測経路を用意する。リアルタイムコールバック内でログ出力しない。
@@ -158,6 +160,8 @@
 - SDL2 2D Rendererとメインループを用意し、1024×768のBrick Pro表示を基準に可読性を確認する。異なる画面サイズでは適切にスケールする。
 - SDL keyboard / GameController イベントを共通論理アクションへ接続し、未認識コントローラーへの診断と可能な範囲の joystick fallback を設ける。
 - デスクトップキーボード操作とコントローラー操作を実機なしで先に確認する。
+
+**進捗（2026-10-23）:** 依存検出付きの`pocket_euclidean_app`を追加し、SDL2がある環境ではウィンドウ起動・入力変換・6画面の基礎描画ループを実行できる。SDL2未導入環境でも`--headless`で起動可能。実機入力プロファイル、SDL2ランタイム配布、オーディオデバイス接続は引き続き未完了。
 
 **完了条件:** GUI を必須とせず起動し、6画面の基本描画と共通入力操作を確認できる。
 
@@ -178,7 +182,7 @@
 
 ### Phase 4 — オーディオ基盤と最初の演奏可能版
 
-- `AudioCallbackProcessor`、フレーム単位スケジューラー、sampler/synth renderer、Mixer DSPのプラットフォーム非依存経路は実装済み。SDL2の実音声デバイスへ接続する。
+- `AudioCallbackProcessor`、フレーム単位スケジューラー、sampler/synth renderer、Mixer DSPのプラットフォーム非依存経路は実装済み。SDL2の実音声デバイスへの接続はデスクトップ（Windows）で内蔵合成音により実装済み。残りは実WAV・Brick Pro実機。
 - Mixer／AD／filter／master volume用の固定長SPSCパラメーターキューは実装済み。残るSequencerパラメーターの手渡し方式を設計し、UI threadとaudio threadの競合を避ける。
 - WAVデコード、SampleCache、固定長サンプルvoice pool、voiceのMixer routingは実装済み。WAVローダー／project参照とvoiceのライフタイムを統合する。
 - 初期voice上限32、サンプルキャッシュ64 MiB、アプリRSS目標128 MiBを越えない設計とし、超過時の決定的voice stealing／明示的なサンプル拒否を定義する。

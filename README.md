@@ -15,21 +15,98 @@ yet a complete playable application: SDL2 device/rendering integration,
 project/settings persistence, effects beyond the current low-pass filter, and
 device packaging are not complete.
 
-Build and test status is deliberately conservative. C++ translation units
-have been checked with strict warnings using an ARM bare-metal compiler, but
-the native CMake build and CTest suites have not yet been run. No desktop or
-handheld runtime is claimed as verified. The current Brick Pro ABI, compiler,
-sysroot, SDL2 runtime, controller mapping, audio behavior, storage, and
-PortMaster/NextUI compatibility all require target validation.
+Build and test status is deliberately conservative. The portable core and both
+CTest executables have been built and run on Windows x86-64 with LLVM-MinGW
+Clang 23.1.3 and Ninja; all tests passed. This verifies the core and test
+programs, not a playable desktop application: the SDL2 application, rendered
+UI, and audio-device integration are not implemented yet. No handheld runtime
+is claimed as verified. The current Brick Pro ABI, compiler, sysroot, SDL2
+runtime, controller mapping, audio behavior, storage, and PortMaster/NextUI
+compatibility all require target validation.
 
 ## Getting started
 
-Use a desktop C++17 compiler and CMake:
+Use a desktop C++17 compiler and CMake. From a Visual Studio 2022 Developer
+PowerShell, build and run the tests with MSVC:
+
+```powershell
+cmake -S . -B build\windows -G "Visual Studio 17 2022" -A x64
+cmake --build build\windows --config Debug
+ctest --test-dir build\windows -C Debug --output-on-failure
+```
+
+For another native Windows compiler with Ninja, set
+`CMAKE_CXX_COMPILER` to that compiler's full path. For example:
+
+```powershell
+cmake -S . -B build\windows-ninja -G Ninja `
+  -DCMAKE_CXX_COMPILER:FILEPATH="C:\toolchain\bin\x86_64-w64-mingw32-clang++.exe"
+cmake --build build\windows-ninja
+$env:PATH = "C:\toolchain\bin;$env:PATH"
+ctest --test-dir build\windows-ninja --output-on-failure
+```
+
+The compiler's runtime DLL directory must be on `PATH` when running MinGW-built
+test executables. Do not use a handheld cross-compiler for a native Windows
+build.
+
+If `pocket_euclidean_tests.exe` does not start from Explorer on Windows, launch
+it from a terminal where the matching toolchain runtime is on `PATH`:
+
+```powershell
+$env:PATH = "C:\toolchain\bin;$env:PATH"
+.\build\windows-ninja\pocket_euclidean_tests.exe
+```
+
+`0xc0000135` usually means a required runtime DLL is not visible.
+
+## Desktop shell target (Phase 2 baseline)
+
+`pocket_euclidean_app` is now available as an application-shell target:
+
+- with SDL2 detected by CMake: opens a resizable window, maps keyboard /
+  controller inputs to logical actions, cycles all six UI screens, and renders
+  bounded 2D primitives (MAIN pattern bars and simple per-screen rows);
+- without SDL2: starts in headless fallback mode and prints a clear message.
+
+Examples:
+
+```powershell
+.\build\windows\Debug\pocket_euclidean_app.exe --headless
+.\build\windows\Debug\pocket_euclidean_app.exe --width 1024 --height 768
+# 1フレームだけ描画してBMP保存（画面確認用。--screen 0-5、--help-modal も指定可）
+.\build\windows\Debug\pocket_euclidean_app.exe --screen 1 --capture edit.bmp
+# 起動直後から再生（音声デバイスが開ければ音声クロック駆動）
+.\build\windows\Debug\pocket_euclidean_app.exe --play
+# フォルダ内の *.wav を名前順にトラック1〜8へ読み込む（起動時、音声開始前）
+.\build\windows\Debug\pocket_euclidean_app.exe --play --samples C:\path\to\wavs
+```
+
+`--data <dir>`（既定 `./conf`）の `project.pec` に、Project menu（Select）の SAVE／LOAD／NEW で保存・読み込みできます。起動時に存在すれば自動で読み込みます。ファイル選択UIはまだなく、1スロットのみです。
+
+```powershell
+# ハンドヘルド向けの起動オプション: 全画面、音声レート／バッファー指定。
+# コントローラーの Select+Start 同時押しで終了。`.\samples` があれば自動で読み込む。
+.\build\windows\Debug\pocket_euclidean_app.exe --fullscreen --rate 44100 --buffer 512
+```
+
+### PortMaster（Linux AArch64）向けクロスビルド
+
+WSL／Linux 上で、zig をツールチェーンにしてルート権限なしで aarch64 向けにビルドし、PortMaster 用 zip まで作ります（要: cmake、ninja、curl、python3、`~/tools/zig/zig` に zig 0.14.x、または `ZIG=` で指定）。
 
 ```sh
-cmake -S . -B build
-cmake --build build
-ctest --test-dir build --output-on-failure
+scripts/build-portmaster-aarch64.sh   # 成果物: ~/pocket-portmaster-build/dist/pocketeuclidean.zip
+```
+
+対象 glibc は既定 2.28（`GLIBC=` で変更）。SDL2 はリンク用にソースからビルドするだけで、実機では端末側の libSDL2 を使います。実機や QEMU での動作は未確認です。
+
+Other desktop platforms can use the same CMake targets with their native
+C++17 compiler:
+
+```sh
+cmake -S . -B build/desktop
+cmake --build build/desktop
+ctest --test-dir build/desktop --output-on-failure
 ```
 
 Builds should use a separate build directory per compiler, target ABI, sysroot,

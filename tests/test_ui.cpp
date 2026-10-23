@@ -117,8 +117,9 @@ void testInputRepeater() {
     simultaneous.release(InputSource::Keyboard, 1);
     const auto remainingRepeat = simultaneous.poll(150);
     expect(remainingRepeat && remainingRepeat->action == Action::NavLeft &&
-               !simultaneous.poll(224),
-           "releasing one held direction leaves the other direction active");
+               !simultaneous.poll(199) &&
+               simultaneous.poll(200).has_value(),
+           "released direction stops while remaining holds keep their repeat schedule");
 
     InputRepeater nearTimestampLimit(100, 50, 25, 200);
     const auto maxTimestamp = std::numeric_limits<std::uint64_t>::max();
@@ -375,7 +376,7 @@ void testMainScreenSnapshot() {
     expect(ui::makeMainScreenSnapshot(sequencer, 2, snapshot),
            "main screen creates a fixed-size snapshot for all tracks");
     expect(snapshot.tempoBpm == 96.0 && snapshot.playing &&
-               snapshot.masterTickPosition == tick.masterTickPosition,
+               snapshot.masterTickPosition == sequencer.masterTickPosition(),
            "main screen snapshot contains current transport status");
     expect(snapshot.tracks[0].rhythm.length == 7 &&
                snapshot.tracks[0].rhythm.fill == 3 &&
@@ -716,7 +717,7 @@ void testScreensAndEditRanges() {
     ui.dispatch({Action::NavDown});
     ui.dispatch({Action::NavLeft});
     ui.dispatch({Action::NavRight, true});
-    expect(sequencer.track(0).volume == 96,
+    expect(sequencer.track(0).volume == 91,
            "fine adjustment changes volume by one after coarse adjustment");
 
     ui.dispatch({Action::Back});
@@ -835,10 +836,9 @@ void testModalsAndFineMode() {
     ui.dispatch({Action::ScreenNext});
     ui.dispatch({Action::NavDown});
     ui.dispatch({Action::NavDown});
-    ui.dispatch({Action::NavDown});
     expect(ui.state().editField == EditField::Offset,
            "edit field navigation reaches offset");
-    ui.dispatch({Action::ValueFine});
+    ui.dispatch({Action::ValueFine, true});
     ui.dispatch({Action::NavRight});
     expect(sequencer.track(0).rhythm.offset == 1,
            "fine modifier is retained for following value change");

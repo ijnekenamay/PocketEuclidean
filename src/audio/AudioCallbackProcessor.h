@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio/AudioParameterQueue.h"
+#include "audio/SequencerCommandQueue.h"
 #include "sequencer/Sequencer.h"
 #include "ui/StepTriggerEventQueue.h"
 
@@ -41,6 +42,11 @@ public:
     void setParameterQueue(AudioParameterQueue* queue) noexcept {
         parameterQueue_ = queue;
     }
+    // Setup-only. The audio thread then owns the Sequencer and applies edits
+    // from this queue at the start of each block.
+    void setSequencerCommandQueue(SequencerCommandQueue* queue) noexcept {
+        sequencerQueue_ = queue;
+    }
     void resetTimeline() noexcept;
     std::uint32_t callbackFailureCount() const noexcept {
         return callbackFailureCount_.load(std::memory_order_relaxed);
@@ -59,6 +65,7 @@ private:
     void* tickUserData_;
     SamplerMixerRenderer* renderer_ = nullptr;
     AudioParameterQueue* parameterQueue_ = nullptr;
+    SequencerCommandQueue* sequencerQueue_ = nullptr;
     std::uint64_t nextBlockStartFrame_ = 0;
     std::atomic<std::uint32_t> callbackFailureCount_{0};
 };
