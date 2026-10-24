@@ -8,6 +8,8 @@
 
 namespace pocket::ui {
 
+struct TrackAudioSettings;
+
 struct MainTrackSnapshot {
     EuclideanConfig rhythm{};
     std::array<bool, EuclideanGenerator::MaxLength> activeSteps{};
@@ -27,5 +29,11 @@ struct MainScreenSnapshot {
 bool makeMainScreenSnapshot(const Sequencer& sequencer,
                             std::size_t selectedTrack,
                             MainScreenSnapshot& snapshot);
+
+bool makeMainScreenSnapshot(
+    const Sequencer& sequencer,
+    std::size_t selectedTrack,
+    const std::array<TrackAudioSettings, TrackCount>& audioTrackSettings,
+    MainScreenSnapshot& snapshot);
 
 } // namespace pocket::ui

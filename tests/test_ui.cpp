@@ -891,6 +891,79 @@ void testSystemThemeSelection() {
            "horizontal navigation outside Display does not alter the theme");
 }
 
+
+void testEffectiveTrackStateAndTempoControls() {
+    using namespace pocket;
+    using namespace pocket::ui;
+
+    Sequencer sequencer;
+    audio::AudioParameterQueue queue;
+    UiController ui(sequencer);
+    ui.setAudioParameterQueue(&queue);
+
+    // Live audio edits update effectiveTrackState and MainScreenSnapshot shadow while keeping sequencer.track untouched
+    ui.dispatch({Action::MuteToggle});
+    const auto effectiveAfterMute = ui.effectiveTrackState(0);
+    expect(effectiveAfterMute.muted && !sequencer.track(0).muted,
+           "effectiveTrackState reflects live audio shadow mute while sequencer track stays unmodified");
+
+    MainScreenSnapshot liveSnapshot{};
+    expect(makeMainScreenSnapshot(
+               sequencer, ui.state().selectedTrack, ui.state().audioTrackSettings, liveSnapshot) &&
+               liveSnapshot.tracks[0].muted,
+           "MainScreenSnapshot overload overlays live audioTrackSettings mute state");
+
+    // Edit screen volume & mute left/right
+    ui.dispatch({Action::ScreenNext}); // Edit
+    for (int i = 0; i < 4; ++i) {
+        ui.dispatch({Action::NavDown});
+    }
+    expect(ui.state().editField == EditField::Volume, "reach edit volume field");
+    ui.dispatch({Action::NavLeft});
+    expect(ui.effectiveTrackState(0).volume == 95 && sequencer.track(0).volume == 100,
+           "effectiveTrackState reflects queued live volume change");
+    ui.dispatch({Action::NavDown});
+    expect(ui.state().editField == EditField::Mute, "reach edit mute field");
+    ui.dispatch({Action::NavRight});
+    expect(!ui.effectiveTrackState(0).muted,
+           "EDIT > Mute supports Left/Right toggle");
+
+    // Sound screen filter Confirm toggle and effectiveTrackState
+    ui.dispatch({Action::ScreenNext}); // Sound
+    ui.dispatch({Action::NavDown});
+    ui.dispatch({Action::NavDown});
+    expect(ui.state().soundField == SoundField::FilterEnabled, "reach sound filter field");
+    ui.dispatch({Action::Confirm});
+    expect(ui.effectiveTrackState(0).filter.enabled && !sequencer.track(0).filter.enabled,
+           "SOUND > FilterEnabled supports Confirm toggle and updates effectiveTrackState");
+
+    // Tempo controls on MAIN and SYSTEM > ClockAndTransport
+    Sequencer tempoSeq;
+    const platform::SystemCapabilities caps{true, true, true, true, true, true};
+    UiController tempoUi(tempoSeq, caps);
+    expect(tempoUi.systemSettings().clock.initialTempoBpm == 120,
+           "systemSettings clock tempo initializes from sequencer tempo");
+    tempoUi.dispatch({Action::NavRight});
+    expect(tempoSeq.tempo() == 125.0 &&
+               tempoUi.systemSettings().clock.initialTempoBpm == 125,
+           "MAIN screen Left/Right adjusts tempo by 5 BPM coarse");
+    tempoUi.dispatch({Action::NavLeft, true});
+    expect(tempoSeq.tempo() == 124.0 &&
+               tempoUi.systemSettings().clock.initialTempoBpm == 124,
+           "MAIN screen fine Left/Right adjusts tempo by 1 BPM");
+
+    for (int s = 0; s < 5; ++s) {
+        tempoUi.dispatch({Action::ScreenNext});
+    }
+    expect(tempoUi.state().screen == Screen::System &&
+               tempoUi.state().systemCategory == platform::SettingsCategory::ClockAndTransport,
+           "reach SYSTEM > ClockAndTransport");
+    tempoUi.dispatch({Action::NavRight});
+    expect(tempoSeq.tempo() == 129.0 &&
+               tempoUi.systemSettings().clock.initialTempoBpm == 129,
+           "SYSTEM > ClockAndTransport Left/Right adjusts tempo");
+}
+
 } // namespace
 
 int main() {
@@ -909,6 +982,7 @@ int main() {
     testScreensAndEditRanges();
     testModalsAndFineMode();
     testSystemThemeSelection();
+    testEffectiveTrackStateAndTempoControls();
 
     if (failures != 0) {
         std::cerr << failures << " UI test assertion(s) failed\n";
