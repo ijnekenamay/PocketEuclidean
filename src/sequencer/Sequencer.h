@@ -37,6 +37,16 @@ struct TrackFilterSettings {
     float cutoffHz = 12000.0F;
 };
 
+struct TrackSynthSettings {
+    static constexpr float MinPitchHz = 20.0F;
+    static constexpr float MaxPitchHz = 2000.0F;
+
+    float pitchHz = 110.0F;
+    float morph = 0.5F;
+    float timbre = 0.5F;
+    float color = 0.5F;
+};
+
 struct TrackState {
     EuclideanConfig rhythm{};
     EffectiveRhythm effectiveRhythm{};
@@ -49,6 +59,7 @@ struct TrackState {
     float pan = 0.0F;
     AdEnvelopeSettings envelope{};
     TrackFilterSettings filter{};
+    TrackSynthSettings synth{};
 };
 
 struct TickResult {
@@ -128,6 +139,8 @@ public:
                      const AdEnvelopeSettings& envelope) noexcept;
     bool setFilter(std::size_t index,
                    const TrackFilterSettings& filter) noexcept;
+    bool setSynth(std::size_t index,
+                  const TrackSynthSettings& synth) noexcept;
 
     TickResult tick();
 

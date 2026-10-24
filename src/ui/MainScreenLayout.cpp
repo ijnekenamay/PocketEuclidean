@@ -26,13 +26,14 @@ bool layoutMainScreen(const MainScreenSnapshot& snapshot,
         return false;
     }
 
-    const auto marginX = std::max<std::int32_t>(16, width / 16);
-    const auto marginY = std::max<std::int32_t>(16, height / 16);
-    const auto labelWidth = std::max<std::int32_t>(40, width / 12);
+    const auto marginX = std::max<std::int32_t>(16, width / 24);
+    const auto marginY = std::max<std::int32_t>(12, height / 28);
+    const auto labelWidth = std::max<std::int32_t>(48, width / 10);
     const auto labelGap = std::max<std::int32_t>(8, width / 64);
-    const auto headerHeight = std::max<std::int32_t>(42, height / 5);
+    const auto headerHeight = std::max<std::int32_t>(44, height / 9);
+    const auto footerHeight = std::max<std::int32_t>(20, height / 24);
     const auto rowsTop = marginY + headerHeight;
-    const auto rowsBottom = height - marginY;
+    const auto rowsBottom = height - marginY - footerHeight;
     const auto rowPitch = (rowsBottom - rowsTop) /
                           static_cast<std::int32_t>(TrackCount);
     const auto patternX = marginX + labelWidth + labelGap;
@@ -57,8 +58,8 @@ bool layoutMainScreen(const MainScreenSnapshot& snapshot,
     next.masterTickPosition = snapshot.masterTickPosition;
     next.playing = snapshot.playing;
 
-    const auto barWidth = std::max<std::int32_t>(1, stepPitch * 2 / 5);
-    const auto barHeight = std::max<std::int32_t>(1, rowPitch * 2 / 5);
+    const auto activeBarHeight = std::max<std::int32_t>(4, rowPitch * 3 / 4);
+    const auto restBarHeight = std::max<std::int32_t>(2, rowPitch * 7 / 20);
     for (std::size_t trackIndex = 0; trackIndex < TrackCount; ++trackIndex) {
         const auto& source = snapshot.tracks[trackIndex];
         if (!EuclideanGenerator::isValid(source.rhythm) ||
@@ -76,11 +77,24 @@ bool layoutMainScreen(const MainScreenSnapshot& snapshot,
         row.muted = source.muted;
         row.instrument = source.instrument;
 
+        const auto length = static_cast<std::int32_t>(source.rhythm.length);
         for (std::uint8_t step = 0; step < source.rhythm.length; ++step) {
-            const auto x = patternX +
-                           static_cast<std::int32_t>(step) * stepPitch;
+            const auto stepIdx = static_cast<std::int32_t>(step);
+            const auto cellX0 =
+                patternX + (stepIdx * availablePatternWidth) / length;
+            const auto cellX1 =
+                patternX + ((stepIdx + 1) * availablePatternWidth) / length;
+            const auto cellWidth = std::max<std::int32_t>(1, cellX1 - cellX0);
+            const auto gap = (step + 1 < source.rhythm.length)
+                                 ? std::clamp<std::int32_t>(cellWidth / 12, 2, 5)
+                                 : 0;
+            const auto barWidth =
+                std::max<std::int32_t>(1, cellWidth - gap);
+            const auto barHeight =
+                source.activeSteps[step] ? activeBarHeight : restBarHeight;
+
             auto& bar = row.steps[step];
-            bar.x = x + (stepPitch - barWidth) / 2;
+            bar.x = cellX0;
             bar.y = row.y + (rowPitch - barHeight) / 2;
             bar.width = barWidth;
             bar.height = barHeight;

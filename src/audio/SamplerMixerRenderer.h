@@ -33,6 +33,7 @@ public:
     bool setMasterVolume(std::uint8_t volumePercent) noexcept;
     void setEffectState(const project::ProjectEffectState& state) noexcept;
     const DelayEffect& delayEffect() const noexcept { return delayEffect_; }
+    const TrackSynthSettings& synthSettings(std::size_t track) const noexcept;
     bool isRealtimeSafe() const noexcept;
     bool trigger(const TickResult& tick, std::uint32_t sampleRate) noexcept;
     bool applyCommand(const AudioParameterCommand& command,
@@ -44,6 +45,8 @@ public:
                 std::uint32_t sampleRate) noexcept;
 
 private:
+    bool syncSynthVoice(std::size_t track) noexcept;
+
     Sequencer& sequencer_;
     SamplerVoicePool& voices_;
     SynthVoiceRack* synthVoices_ = nullptr;
@@ -56,10 +59,12 @@ private:
     std::array<std::uint32_t, TrackCount> filterSampleRates_{};
     std::array<AdEnvelopeSettings, TrackCount> envelopeSettings_{};
     std::array<TrackFilterSettings, TrackCount> filterSettings_{};
+    std::array<TrackSynthSettings, TrackCount> synthSettings_{};
     std::array<float, MaxRenderFrames> outputLeft_{};
     std::array<float, MaxRenderFrames> outputRight_{};
     std::array<StereoInputBuffer, TrackCount> inputs_{};
     std::array<TrackMixerSettings, TrackCount> settings_{};
+    project::ProjectEffectState effectState_{};
     DelayEffect delayEffect_{};
 };
 

@@ -21,7 +21,8 @@ enum class SequencerCommandType : std::uint8_t {
     SetVolume,
     SetPan,
     SetEnvelope,
-    SetFilter
+    SetFilter,
+    SetSynth
 };
 
 // Plain-data edit sent from the UI thread to the audio thread's Sequencer.
@@ -39,6 +40,7 @@ struct SequencerCommand {
     float pan = 0.0F;
     AdEnvelopeSettings envelope{};
     TrackFilterSettings filter{};
+    TrackSynthSettings synth{};
 };
 
 // Single-producer (UI) / single-consumer (audio) lock-free queue.
@@ -108,6 +110,8 @@ inline bool applySequencerCommand(Sequencer& sequencer,
         return sequencer.setEnvelope(c.track, c.envelope);
     case SequencerCommandType::SetFilter:
         return sequencer.setFilter(c.track, c.filter);
+    case SequencerCommandType::SetSynth:
+        return sequencer.setSynth(c.track, c.synth);
     }
     return false;
 }
@@ -166,6 +170,11 @@ private:
     static bool same(const TrackFilterSettings& a,
                      const TrackFilterSettings& b) {
         return a.enabled == b.enabled && a.cutoffHz == b.cutoffHz;
+    }
+    static bool same(const TrackSynthSettings& a,
+                     const TrackSynthSettings& b) {
+        return a.pitchHz == b.pitchHz && a.morph == b.morph &&
+               a.timbre == b.timbre && a.color == b.color;
     }
 
     void syncTrack(std::size_t t, const TrackState& now) {
@@ -237,6 +246,13 @@ private:
             c.filter = now.filter;
             if (queue_.push(c)) {
                 shadow_.setFilter(t, now.filter);
+            }
+        }
+        if (!same(now.synth, old.synth)) {
+            c.type = SequencerCommandType::SetSynth;
+            c.synth = now.synth;
+            if (queue_.push(c)) {
+                shadow_.setSynth(t, now.synth);
             }
         }
     }

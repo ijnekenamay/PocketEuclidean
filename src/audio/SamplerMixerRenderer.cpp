@@ -16,6 +16,7 @@ SamplerMixerRenderer::SamplerMixerRenderer(
         settings_[track] = Mixer::settingsForTrack(state);
         envelopeSettings_[track] = state.envelope;
         filterSettings_[track] = state.filter;
+        synthSettings_[track] = state.synth;
     }
 }
 
@@ -35,6 +36,8 @@ SamplerMixerRenderer::SamplerMixerRenderer(
         settings_[track] = Mixer::settingsForTrack(state);
         envelopeSettings_[track] = state.envelope;
         filterSettings_[track] = state.filter;
+        synthSettings_[track] = state.synth;
+        syncSynthVoice(track);
     }
 }
 
@@ -49,7 +52,29 @@ bool SamplerMixerRenderer::setMasterVolume(
 
 void SamplerMixerRenderer::setEffectState(
     const project::ProjectEffectState& state) noexcept {
-    delayEffect_.setParameters(state);
+    effectState_ = state;
+    delayEffect_.setParameters(effectState_);
+}
+
+const TrackSynthSettings& SamplerMixerRenderer::synthSettings(
+    std::size_t track) const noexcept {
+    static constexpr TrackSynthSettings DefaultSynth{};
+    if (track >= synthSettings_.size()) {
+        return DefaultSynth;
+    }
+    return synthSettings_[track];
+}
+
+bool SamplerMixerRenderer::syncSynthVoice(std::size_t track) noexcept {
+    if (synthVoices_ == nullptr || !synthVoices_->isConfigured(track)) {
+        return true;
+    }
+    SynthParameters params = synthVoices_->parameters(track);
+    params.pitchHz = synthSettings_[track].pitchHz;
+    params.morph = synthSettings_[track].morph;
+    params.timbre = synthSettings_[track].timbre;
+    params.color = synthSettings_[track].color;
+    return synthVoices_->updateParameters(track, params);
 }
 
 bool SamplerMixerRenderer::isRealtimeSafe() const noexcept {
@@ -101,6 +126,22 @@ bool SamplerMixerRenderer::applyCommand(
     if (command.parameter == AudioParameter::MasterVolume) {
         return setMasterVolume(static_cast<std::uint8_t>(command.value));
     }
+    if (command.parameter == AudioParameter::DelayTimeMs) {
+        effectState_.delayMilliseconds =
+            static_cast<std::uint16_t>(command.value);
+        delayEffect_.setParameters(effectState_);
+        return true;
+    }
+    if (command.parameter == AudioParameter::DelayFeedback) {
+        effectState_.delayFeedback = command.value;
+        delayEffect_.setParameters(effectState_);
+        return true;
+    }
+    if (command.parameter == AudioParameter::DelayMix) {
+        effectState_.delayMix = command.value;
+        delayEffect_.setParameters(effectState_);
+        return true;
+    }
 
     const auto track = static_cast<std::size_t>(command.track);
     auto& mixerSettings = settings_[track];
@@ -136,6 +177,21 @@ bool SamplerMixerRenderer::applyCommand(
         filterSettings_[track].cutoffHz = command.value;
         filterSampleRates_[track] = 0;
         break;
+    case AudioParameter::TrackSynthPitch:
+        synthSettings_[track].pitchHz = command.value;
+        return syncSynthVoice(track);
+    case AudioParameter::TrackSynthMorph:
+        synthSettings_[track].morph = command.value;
+        return syncSynthVoice(track);
+    case AudioParameter::TrackSynthTimbre:
+        synthSettings_[track].timbre = command.value;
+        return syncSynthVoice(track);
+    case AudioParameter::TrackSynthColor:
+        synthSettings_[track].color = command.value;
+        return syncSynthVoice(track);
+    case AudioParameter::DelayTimeMs:
+    case AudioParameter::DelayFeedback:
+    case AudioParameter::DelayMix:
     case AudioParameter::MasterVolume:
         return false;
     }

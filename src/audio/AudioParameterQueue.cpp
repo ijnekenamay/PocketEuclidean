@@ -1,4 +1,5 @@
 #include "audio/AudioParameterQueue.h"
+#include "audio/DelayEffect.h"
 
 #include <cmath>
 
@@ -64,6 +65,27 @@ bool AudioParameterQueue::isValid(
         return command.track < TrackCount &&
                command.value >= TrackFilterSettings::MinCutoffHz &&
                command.value <= TrackFilterSettings::MaxCutoffHz;
+    case AudioParameter::TrackSynthPitch:
+        return command.track < TrackCount &&
+               command.value >= TrackSynthSettings::MinPitchHz &&
+               command.value <= TrackSynthSettings::MaxPitchHz;
+    case AudioParameter::TrackSynthMorph:
+    case AudioParameter::TrackSynthTimbre:
+    case AudioParameter::TrackSynthColor:
+        return command.track < TrackCount &&
+               command.value >= 0.0F && command.value <= 1.0F;
+    case AudioParameter::DelayTimeMs:
+        return command.track == 0 &&
+               command.value >= static_cast<float>(DelayEffect::MinDelayMs) &&
+               command.value <= static_cast<float>(DelayEffect::MaxDelayMs) &&
+               std::floor(command.value) == command.value;
+    case AudioParameter::DelayFeedback:
+        return command.track == 0 &&
+               command.value >= 0.0F &&
+               command.value <= DelayEffect::MaxFeedback;
+    case AudioParameter::DelayMix:
+        return command.track == 0 &&
+               command.value >= 0.0F && command.value <= 1.0F;
     case AudioParameter::MasterVolume:
         return command.track == 0 && command.value >= 0.0F &&
                command.value <= 100.0F &&
