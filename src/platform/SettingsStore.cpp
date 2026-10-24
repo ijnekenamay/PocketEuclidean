@@ -62,7 +62,7 @@ bool parseSettings(const std::string& text, SystemSettings& out,
         if (key == "version") {
             std::uint32_t version = 0;
             ok = static_cast<bool>(in >> version);
-            if (ok && version != SystemSettingsFormatVersion) {
+            if (ok && (version == 0 || version > SystemSettingsFormatVersion)) {
                 return fail(error, "unsupported settings version " +
                                        std::to_string(version));
             }
@@ -94,6 +94,7 @@ bool parseSettings(const std::string& text, SystemSettings& out,
     if (!versionSeen) {
         return fail(error, "missing version");
     }
+    s.formatVersion = SystemSettingsFormatVersion;
     if (!isValid(s)) {
         return fail(error, "values out of range");
     }

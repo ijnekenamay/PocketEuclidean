@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio/AdEnvelope.h"
+#include "audio/DelayEffect.h"
 #include "audio/AudioParameterQueue.h"
 #include "audio/Mixer.h"
 #include "audio/OnePoleLowPass.h"
@@ -30,6 +31,8 @@ public:
 
     // Setup-only; do not call while the audio callback is rendering.
     bool setMasterVolume(std::uint8_t volumePercent) noexcept;
+    void setEffectState(const project::ProjectEffectState& state) noexcept;
+    const DelayEffect& delayEffect() const noexcept { return delayEffect_; }
     bool isRealtimeSafe() const noexcept;
     bool trigger(const TickResult& tick, std::uint32_t sampleRate) noexcept;
     bool applyCommand(const AudioParameterCommand& command,
@@ -57,6 +60,7 @@ private:
     std::array<float, MaxRenderFrames> outputRight_{};
     std::array<StereoInputBuffer, TrackCount> inputs_{};
     std::array<TrackMixerSettings, TrackCount> settings_{};
+    DelayEffect delayEffect_{};
 };
 
 } // namespace pocket::audio

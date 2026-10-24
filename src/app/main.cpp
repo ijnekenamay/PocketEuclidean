@@ -796,6 +796,8 @@ int runSdlApp(const AppOptions& options) {
         statusUntilMs = SDL_GetTicks64() + 3000;
         std::cerr << text << '\n';
     };
+
+    pocket::project::ProjectEffectState currentEffects{};
     const std::string projectPath =
         (std::filesystem::path(options.dataDir) / "project.pec").string();
     const auto applyToLive = [&](const pocket::project::ProjectData& data) {
@@ -807,11 +809,14 @@ int runSdlApp(const AppOptions& options) {
         pocket::project::applyProject(data, sequencer);
         ui.resyncFromSequencer();
         ui.setModified(false);
+        currentEffects = data.effects;
         if (audioRunning) {
             engine.syncSequencer(sequencer);
+            engine.setEffectState(currentEffects);
         }
         return true;
     };
+
     const auto handleProjectRequest = [&](pocket::ui::ProjectRequest request) {
         using pocket::ui::ProjectRequest;
         std::string error;
@@ -823,13 +828,16 @@ int runSdlApp(const AppOptions& options) {
             for (std::size_t i = 0; i < pocket::TrackCount; ++i) {
                 fresh.tracks[i].rhythm = pocket::ExamplePresetRhythms[i];
             }
+            currentEffects = fresh.effects;
             setStatus(applyToLive(fresh) ? "NEW PROJECT" : "NEW FAILED");
             break;
         }
         case ProjectRequest::SaveProject:
         case ProjectRequest::SaveProjectAs:
             if (pocket::project::saveProjectFile(
-                    projectPath, pocket::project::captureProject(sequencer),
+                    projectPath,
+                    pocket::project::captureProject(
+                        sequencer, ui.state().audioTrackSettings, &currentEffects),
                     &error)) {
                 ui.setModified(false);
                 setStatus("SAVED");
@@ -842,6 +850,7 @@ int runSdlApp(const AppOptions& options) {
             if (!pocket::project::loadProjectFile(projectPath, data, &error)) {
                 setStatus("LOAD FAILED: " + error);
             } else {
+                currentEffects = data.effects;
                 setStatus(applyToLive(data) ? "LOADED" : "LOAD FAILED: bad values");
             }
             break;
@@ -865,6 +874,7 @@ int runSdlApp(const AppOptions& options) {
         }
         if (audioRunning) {
             engine.syncSequencer(sequencer);
+            engine.setEffectState(currentEffects);
         }
     };
     if (std::filesystem::exists(projectPath)) {
@@ -1119,6 +1129,7 @@ int runSdlApp(const AppOptions& options) {
             }
         } else {
             engine.syncSequencer(sequencer);
+            engine.setEffectState(currentEffects);
             engine.updateLights();
             engine.updateMeters();
         }

@@ -14,7 +14,9 @@
 #include "project/ProjectData.h"
 #include "project/ProjectStore.h"
 #include "platform/SettingsStore.h"
+#include "audio/DelayEffect.h"
 #include "ui/ThemePalette.h"
+#include "ui/UiController.h"
 
 #include <cstdlib>
 #include <array>
@@ -1885,10 +1887,130 @@ void testSettingsStore() {
     std::filesystem::remove_all(std::filesystem::path(path).parent_path(), ec);
 }
 
+void testProjectSnapshotCoordinator() {
+    std::cout << "testProjectSnapshotCoordinator...\n";
+    pocket::Sequencer sequencer;
+    std::array<pocket::ui::TrackAudioSettings, pocket::TrackCount> shadow{};
+    for (std::size_t i = 0; i < pocket::TrackCount; ++i) {
+        shadow[i].volume = static_cast<std::uint8_t>(30 + i * 8);
+        shadow[i].pan = -0.7F + static_cast<float>(i) * 0.2F;
+        shadow[i].muted = (i % 2 == 1);
+        shadow[i].envelope.attackSeconds = 0.05F + static_cast<float>(i) * 0.01F;
+        shadow[i].envelope.decaySeconds = 0.5F + static_cast<float>(i) * 0.1F;
+        shadow[i].filter.enabled = (i % 3 == 0);
+        shadow[i].filter.cutoffHz = 1000.0F + static_cast<float>(i) * 500.0F;
+    }
+    pocket::project::ProjectEffectState fx;
+    fx.delayMilliseconds = 350;
+    fx.delayFeedback = 0.4F;
+    fx.delayMix = 0.3F;
+
+    const auto project = pocket::project::captureProject(sequencer, shadow, &fx);
+    expect(project.effects.delayMilliseconds == 350, "fx delay time captured");
+    expect(project.effects.delayFeedback == 0.4F, "fx delay feedback captured");
+    expect(project.effects.delayMix == 0.3F, "fx delay mix captured");
+
+    for (std::size_t i = 0; i < pocket::TrackCount; ++i) {
+        const auto& t = project.tracks[i];
+        expect(t.volume == shadow[i].volume, "track volume matches UI shadow");
+        expect(t.pan == shadow[i].pan, "track pan matches UI shadow");
+        expect(t.muted == shadow[i].muted, "track muted matches UI shadow");
+        expect(t.envelope.attackSeconds == shadow[i].envelope.attackSeconds, "track attack matches shadow");
+        expect(t.envelope.decaySeconds == shadow[i].envelope.decaySeconds, "track decay matches shadow");
+        expect(t.filter.enabled == shadow[i].filter.enabled, "track filter enabled matches shadow");
+        expect(t.filter.cutoffHz == shadow[i].filter.cutoffHz, "track filter cutoff matches shadow");
+    }
+
+    const auto serialized = pocket::project::serializeProject(project);
+    pocket::project::ProjectData parsed;
+    std::string err;
+    expect(pocket::project::parseProject(serialized, parsed, &err), "parsed serialized snapshot");
+    expect(parsed.effects.delayMilliseconds == 350, "parsed fx delay time");
+    expect(parsed.tracks[0].volume == shadow[0].volume, "parsed shadow track 0 volume");
+}
+
+void testSettingsStoreMigration() {
+    std::cout << "testSettingsStoreMigration...\n";
+    const std::string v2Text =
+        "PocketEuclideanSettings\n"
+        "version 2\n"
+        "tempo 135.5\n"
+        "audio 44100 256 80\n"
+        "input 1 250 40\n";
+    pocket::platform::SystemSettings s;
+    std::string err;
+    expect(pocket::platform::parseSettings(v2Text, s, &err), "parse v2 settings: " + err);
+    expect(s.formatVersion == pocket::platform::SystemSettingsFormatVersion, "v2 migrated to current format version");
+    expect(s.clock.initialTempoBpm == 135.5, "v2 tempo preserved");
+    expect(s.audio.sampleRate == 44100, "v2 sample rate preserved");
+    expect(s.audio.bufferFrames == 256, "v2 buffer frames preserved");
+    expect(s.audio.masterVolumePercent == 80, "v2 master volume preserved");
+    expect(s.input.preferGameController, "v2 input prefer preserved");
+    expect(s.display.theme == pocket::platform::ThemeId::QuietDark, "v2 defaults theme to QuietDark");
+
+    pocket::platform::SystemSettings bad;
+    expect(!pocket::platform::parseSettings("PocketEuclideanSettings\nversion 0\n", bad), "reject version 0");
+    expect(!pocket::platform::parseSettings("PocketEuclideanSettings\nversion 4\n", bad), "reject future version 4");
+}
+
+void testDelayEffect() {
+    std::cout << "testDelayEffect...\n";
+    pocket::audio::DelayEffect delay;
+    expect(delay.isRealtimeSafe(), "delay is realtime safe");
+
+    pocket::project::ProjectEffectState fx;
+    fx.delayMilliseconds = 100;
+    fx.delayFeedback = 0.5F;
+    fx.delayMix = 0.5F;
+    delay.setParameters(fx);
+    expect(delay.delayMilliseconds() == 100, "delayMs set");
+    expect(delay.feedback() == 0.5F, "feedback set");
+    expect(delay.mix() == 0.5F, "mix set");
+
+    fx.delayMilliseconds = 5;
+    fx.delayFeedback = 1.5F;
+    fx.delayMix = 2.0F;
+    delay.setParameters(fx);
+    expect(delay.delayMilliseconds() == 10, "min delayMs clamped");
+    expect(delay.feedback() == 0.90F, "max feedback clamped");
+    expect(delay.mix() == 1.0F, "max mix clamped");
+
+    fx.delayMilliseconds = 10;
+    fx.delayFeedback = 0.5F;
+    fx.delayMix = 0.5F;
+    delay.setParameters(fx);
+    delay.reset();
+
+    constexpr std::uint32_t Rate = 48000;
+    constexpr std::size_t Frames = 1000;
+    std::vector<float> stereo(Frames * 2, 0.0F);
+    stereo[0] = 1.0F;
+    stereo[1] = 1.0F;
+
+    delay.processStereo(stereo.data(), Frames, Rate);
+
+    expect(std::abs(stereo[0] - 0.5F) < 1e-4F, "dry impulse attenuated by mix");
+    expect(std::abs(stereo[1] - 0.5F) < 1e-4F, "dry impulse attenuated by mix");
+
+    expect(std::abs(stereo[480 * 2] - 0.5F) < 1e-4F, "delayed echo appears at 480 frames");
+    expect(std::abs(stereo[480 * 2 + 1] - 0.5F) < 1e-4F, "delayed echo appears at 480 frames");
+    expect(stereo[240 * 2] == 0.0F, "silence before echo");
+
+    fx.delayMix = 0.0F;
+    delay.setParameters(fx);
+    stereo.assign(Frames * 2, 0.0F);
+    stereo[0] = 0.8F;
+    delay.processStereo(stereo.data(), Frames, Rate);
+    expect(stereo[0] == 0.8F, "mix 0 leaves input untouched");
+}
+
 } // namespace
 
 int main() {
     testSettingsStore();
+    testSettingsStoreMigration();
+    testProjectSnapshotCoordinator();
+    testDelayEffect();
     testProjectStoreRoundTrip();
     testPulseCountAndRotation();
     testEvenDistribution();

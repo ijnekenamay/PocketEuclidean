@@ -2,6 +2,7 @@
 
 #include "app/SdlAudioBackend.h"
 #include "audio/AudioCallbackProcessor.h"
+#include "audio/BasicVaVoice.h"
 #include "audio/AudioParameterQueue.h"
 #include "audio/Mixer.h"
 #include "audio/SampleCache.h"
@@ -35,13 +36,25 @@ public:
     explicit DesktopAudioEngine(const Sequencer& uiSequencer)
         : audioSequencer_(uiSequencer),
           sync_(sequencerQueue_, uiSequencer),
-          renderer_(audioSequencer_, voices_, mixer_),
+          renderer_(audioSequencer_, voices_, synthRack_, mixer_),
           processor_(audioSequencer_, events_, renderer_) {
         for (std::size_t track = 0; track < TrackCount; ++track) {
             samples_[track] = makeSound(track);
             voices_.assignSample(
                 track, {samples_[track].data(), samples_[track].size(),
                         SourceSampleRate});
+        }
+        constexpr std::array<float, TrackCount> DefaultPitches = {
+            55.00F, 110.00F, 164.81F, 220.00F, 261.63F, 329.63F, 440.00F, 523.25F
+        };
+        for (std::size_t track = 0; track < TrackCount; ++track) {
+            audio::SynthParameters params;
+            params.pitchHz = DefaultPitches[track];
+            params.morph = static_cast<float>(track % 4) * 0.33F;
+            params.timbre = 0.5F;
+            params.color = 0.5F;
+            params.level = 0.7F;
+            synthRack_.configure(track, &synthVoices_[track], params);
         }
         processor_.setParameterQueue(&queue_);
         processor_.setSequencerCommandQueue(&sequencerQueue_);
@@ -121,6 +134,9 @@ public:
     void stop() { backend_.close(); }
     bool running() const noexcept { return backend_.isOpen(); }
 
+    void setEffectState(const project::ProjectEffectState& state) noexcept {
+        renderer_.setEffectState(state);
+    }
     audio::AudioParameterQueue& parameterQueue() noexcept { return queue_; }
     const platform::AudioDeviceSpec& obtainedSpec() const noexcept {
         return obtained_;
@@ -206,6 +222,8 @@ private:
     Sequencer audioSequencer_;
     audio::SequencerSync sync_;
     audio::SamplerVoicePool voices_;
+    std::array<audio::BasicVaVoice, TrackCount> synthVoices_{};
+    audio::SynthVoiceRack synthRack_{};
     audio::Mixer mixer_;
     audio::SamplerMixerRenderer renderer_;
     audio::AudioCallbackProcessor processor_;

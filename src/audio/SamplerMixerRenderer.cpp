@@ -47,6 +47,11 @@ bool SamplerMixerRenderer::setMasterVolume(
     return true;
 }
 
+void SamplerMixerRenderer::setEffectState(
+    const project::ProjectEffectState& state) noexcept {
+    delayEffect_.setParameters(state);
+}
+
 bool SamplerMixerRenderer::isRealtimeSafe() const noexcept {
     if (!mixer_.isRealtimeSafe()) {
         return false;
@@ -223,6 +228,8 @@ bool SamplerMixerRenderer::render(float* interleavedStereo,
         interleavedStereo[outputFrame * 2] = outputLeft_[frame];
         interleavedStereo[outputFrame * 2 + 1] = outputRight_[frame];
     }
+    delayEffect_.processStereo(
+        interleavedStereo + outputOffset * 2, frameCount, sampleRate);
     return true;
 }
 

@@ -2,12 +2,24 @@
 
 #include "project/ProjectData.h"
 
+#include <array>
 #include <iosfwd>
 #include <string>
+
+namespace pocket::ui {
+struct TrackAudioSettings;
+}
 
 namespace pocket::project {
 
 ProjectData captureProject(const Sequencer& sequencer);
+
+// Captures project data combining the Sequencer state with UI-side audio shadows
+// (volume, pan, mute, envelope, filter) and optional effect state.
+ProjectData captureProject(
+    const Sequencer& sequencer,
+    const std::array<ui::TrackAudioSettings, TrackCount>& audioShadow,
+    const ProjectEffectState* effects = nullptr);
 
 // Applies every value through the Sequencer setters, so out-of-range data is
 // rejected by the same validation as live edits. Returns false if any value

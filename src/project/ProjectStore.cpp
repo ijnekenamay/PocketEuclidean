@@ -1,4 +1,5 @@
 #include "project/ProjectStore.h"
+#include "ui/UiController.h"
 
 #include <cstdio>
 #include <cmath>
@@ -157,6 +158,26 @@ ProjectData captureProject(const Sequencer& sequencer) {
         target.pan = source.pan;
         target.envelope = source.envelope;
         target.filter = source.filter;
+    }
+    return project;
+}
+
+ProjectData captureProject(
+    const Sequencer& sequencer,
+    const std::array<ui::TrackAudioSettings, TrackCount>& audioShadow,
+    const ProjectEffectState* effects) {
+    ProjectData project = captureProject(sequencer);
+    for (std::size_t i = 0; i < TrackCount; ++i) {
+        const auto& shadow = audioShadow[i];
+        auto& target = project.tracks[i];
+        target.volume = shadow.volume;
+        target.pan = shadow.pan;
+        target.muted = shadow.muted;
+        target.envelope = shadow.envelope;
+        target.filter = shadow.filter;
+    }
+    if (effects != nullptr) {
+        project.effects = *effects;
     }
     return project;
 }
