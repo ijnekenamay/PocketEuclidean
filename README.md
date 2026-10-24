@@ -1,4 +1,6 @@
 # Pocket Euclidean
+As of October 26, 2026, it is up and running. I'm not satisfied with the UI. There are still a lot of parts that haven't been implemented yet.
+But I've run out of credits to use for coding!!!!!
 
 Pocket Euclidean is an original C++17 groovebox project for desktop systems
 and retro handhelds. It targets an eight-track Euclidean sequencer with a WAV
