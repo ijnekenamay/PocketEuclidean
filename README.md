@@ -8,9 +8,9 @@ sampler and replaceable lightweight synthesizer voices. TrimUI Brick Pro /
 NextUI / PortMaster is the first handheld target under consideration; other
 Linux handhelds and desktop systems remain part of the portability design.
 
-## UI Screenshots (Elastic Full-Width Polymetric Design)
+## UI Screenshots (Pure Geometric Tile Matrix & Abstract Instrument Icons)
 
-Each track's Euclidean step bar stretches elastically to 100% of the lane width regardless of step count (`ELENG` 2..32), making polymetric phase relationships (e.g., 16 vs 12 vs 7 vs 15 vs 8 vs 11 vs 5 steps) immediately legible at a glance.
+Each track's Euclidean step bar stretches elastically to 100% of the lane width regardless of step count (`ELENG` 2..32), and both active pulse steps and non-pulse rest steps share an **identical full-row vertical height**, forming an edge-to-edge geometric tile matrix. Left-column text clutter (`T1..T8`, `E(...)`) is replaced with minimal abstract geometric instrument glyphs (5-bar symmetrical wave spectrum for **Sampler**, concentric square frame + core for **Synth**, and horizontal mute cut for muted tracks).
 
 | MAIN (Elastic Polymetric Grid) | EDIT (Step Explorer & 8-Track Phase Matrix) |
 | :---: | :---: |

@@ -447,6 +447,11 @@ void testMainScreenLayout() {
                        "elastic step spacing scales uniformly to fill full width for each track length");
             }
         }
+        for (std::uint8_t step = 0; step < row.stepCount; ++step) {
+            expect(row.steps[step].y == row.steps[0].y &&
+                       row.steps[step].height == row.steps[0].height,
+                   "active and rest steps share identical vertical y and height in the geometric grid");
+        }
         const auto& lastBar = row.steps[row.stepCount - 1];
         expect(row.steps[0].x == frame.patternX &&
                    lastBar.x + lastBar.width == frame.width - frame.tempoX,

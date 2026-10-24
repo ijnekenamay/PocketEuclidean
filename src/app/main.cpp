@@ -489,6 +489,85 @@ void drawFlatBar(SDL_Renderer* renderer,
     }
 }
 
+// Abstract geometric instrument & track status icon:
+// - Sampler: 5 symmetrical acoustic spectrum / wave bars (35%, 70%, 100%, 70%, 35%)
+// - Synth: Concentric geometric oscillator frame with a floating inner core
+// - Selected: Luminous left vertical accent bar + accent-tinted glyph
+// - Muted: Dimmed hollow/split motif with a horizontal mute cut
+void drawInstrumentGlyph(SDL_Renderer* renderer,
+                         const pocket::ui::ThemePalette& palette,
+                         pocket::InstrumentType instrument,
+                         bool selected,
+                         bool muted,
+                         std::int32_t x,
+                         std::int32_t y,
+                         std::int32_t width,
+                         std::int32_t height) {
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    const std::int32_t iconSize =
+        std::clamp<std::int32_t>(std::min(width - 6, height - 10), 10, 30);
+    const std::int32_t ix = x + (width - iconSize) / 2;
+    const std::int32_t iy = y + (height - iconSize) / 2;
+
+    if (selected) {
+        setColor(renderer, palette.accent);
+        const std::int32_t barH = std::max<std::int32_t>(10, height - 8);
+        fillRect(renderer, std::max<std::int32_t>(4, x - 6),
+                 y + (height - barH) / 2, 3, barH);
+    }
+
+    const auto glyphColor =
+        muted ? blendColor(palette.background, palette.subdued, 0.55F)
+              : (selected ? palette.accent : palette.primary);
+
+    if (instrument == pocket::InstrumentType::Sampler) {
+        // 5 symmetrical vertical wave bars (diamond profile)
+        constexpr int BarCount = 5;
+        constexpr int Ratios[BarCount] = {36, 68, 100, 68, 36};
+        const std::int32_t gap = std::max<std::int32_t>(1, iconSize / 10);
+        const std::int32_t barW =
+            std::max<std::int32_t>(2, (iconSize - gap * (BarCount - 1)) / BarCount);
+        const std::int32_t totalW = barW * BarCount + gap * (BarCount - 1);
+        const std::int32_t startX = x + (width - totalW) / 2;
+        setColor(renderer, glyphColor);
+        for (int b = 0; b < BarCount; ++b) {
+            const std::int32_t bh =
+                std::max<std::int32_t>(2, (iconSize * Ratios[b]) / 100);
+            const std::int32_t bx = startX + b * (barW + gap);
+            const std::int32_t by = y + (height - bh) / 2;
+            fillRect(renderer, bx, by, barW, bh);
+        }
+    } else {
+        // Synth: Concentric geometric oscillator square + inner resonant core
+        const std::int32_t stroke = std::max<std::int32_t>(2, iconSize / 7);
+        setColor(renderer, glyphColor);
+        // Outer square frame
+        fillRect(renderer, ix, iy, iconSize, stroke);
+        fillRect(renderer, ix, iy + iconSize - stroke, iconSize, stroke);
+        fillRect(renderer, ix, iy, stroke, iconSize);
+        fillRect(renderer, ix + iconSize - stroke, iy, stroke, iconSize);
+        // Inner solid core
+        const std::int32_t coreSize =
+            std::max<std::int32_t>(4, iconSize - stroke * 4);
+        const std::int32_t cx = ix + (iconSize - coreSize) / 2;
+        const std::int32_t cy = iy + (iconSize - coreSize) / 2;
+        if (!muted) {
+            setColor(renderer, selected ? palette.primary : palette.accent);
+        }
+        fillRect(renderer, cx, cy, coreSize, coreSize);
+    }
+
+    if (muted) {
+        // Crisp horizontal mute cut across center of glyph
+        setColor(renderer, palette.background);
+        fillRect(renderer, ix - 2, y + height / 2 - 2, iconSize + 4, 4);
+        setColor(renderer, palette.subdued);
+        fillRect(renderer, ix - 1, y + height / 2 - 1, iconSize + 2, 2);
+    }
+}
+
 void drawHeaderBar(SDL_Renderer* renderer,
                    const pocket::ui::ThemePalette& palette,
                    const std::string& title,
@@ -496,14 +575,27 @@ void drawHeaderBar(SDL_Renderer* renderer,
                    std::int32_t margin,
                    std::int32_t y,
                    std::int32_t width,
-                   std::int32_t headerHeight) {
+                   std::int32_t headerHeight,
+                   std::optional<pocket::InstrumentType> headerInstrument = std::nullopt,
+                   bool headerMuted = false) {
     const std::int32_t titleScale =
         std::clamp(headerHeight / (pocket::app::GlyphHeight * 2), 2, 4);
     const std::int32_t rightScale = std::max(1, titleScale - 1);
     const std::int32_t usableWidth = width - 2 * margin;
-    setColor(renderer, palette.accent);
-    fillRect(renderer, margin, y + 4, 6, headerHeight - 10);
-    drawText(renderer, title, margin + 14, y, usableWidth * 3 / 5, headerHeight,
+
+    std::int32_t textX = margin + 14;
+    if (headerInstrument.has_value()) {
+        const std::int32_t glyphW = std::max<std::int32_t>(26, headerHeight - 8);
+        drawInstrumentGlyph(renderer, palette, *headerInstrument, true,
+                            headerMuted, margin + 4, y + 2, glyphW,
+                            headerHeight - 6);
+        textX = margin + glyphW + 14;
+    } else {
+        setColor(renderer, palette.accent);
+        fillRect(renderer, margin, y + 4, 6, headerHeight - 10);
+    }
+
+    drawText(renderer, title, textX, y, usableWidth * 3 / 5, headerHeight,
              palette.primary, titleScale);
     if (!contextRight.empty()) {
         drawTextRight(renderer, contextRight, margin + usableWidth * 2 / 5, y,
@@ -536,16 +628,8 @@ std::string mainTextFor(const pocket::ui::MainDrawCommand& command) {
         return formatNumber("%.0f BPM", command.numericValue);
     case MainTextRole::Transport:
         return command.playing ? "PLAY" : "STOP";
-    case MainTextRole::Track: {
-        std::string label = "T" + std::to_string(command.trackNumber) + " " +
-                            (command.instrument == pocket::InstrumentType::Sampler
-                                 ? "SMP"
-                                 : "SYN");
-        if (command.muted) {
-            label += " M";
-        }
-        return label;
-    }
+    case MainTextRole::Track:
+        return {};
     }
     return {};
 }
@@ -595,64 +679,43 @@ void renderMainScreen(SDL_Renderer* renderer,
     const std::int32_t usableWidth = width - 2 * frame.tempoX;
     const std::int32_t patternW = width - frame.tempoX - frame.patternX;
 
-    // Header band: Left = BPM + Transport, Right = Selected track summary + polyrhythm badge
+    // Header band: Selected track summary + geometric 8-track indicator pips
     const auto selectedTrack = ui.effectiveTrackState(ui.state().selectedTrack);
     const std::string trackSummary =
-        "TRACK " + std::to_string(ui.state().selectedTrack + 1) + " [" +
-        (selectedTrack.instrument == pocket::InstrumentType::Sampler ? "SAMPLER" : "SYNTH") +
-        "]  E(" + std::to_string(selectedTrack.effectiveRhythm.fill) + "," +
+        "E(" + std::to_string(selectedTrack.effectiveRhythm.fill) + "," +
         std::to_string(selectedTrack.effectiveRhythm.length) + "," +
         std::to_string(selectedTrack.effectiveRhythm.offset) + ")  VOL " +
         std::to_string(selectedTrack.volume) + "%" +
-        (selectedTrack.muted ? "  [MUTED]" : "");
-    drawTextRight(renderer, trackSummary, frame.patternX, frame.tempoY,
-                  patternW, headerAreaH / 2, frame.palette.accent, trackTextScale);
+        (selectedTrack.muted ? "  [MUTE]" : "");
+    drawTextRight(renderer, trackSummary, frame.patternX, frame.tempoY + 4,
+                  patternW, headerAreaH - 12, frame.palette.accent,
+                  trackTextScale);
 
-    std::string subHeader = "ELASTIC POLYMETRIC GRID  100% FULL-WIDTH RATIO";
-    if (ui.state().fineAdjust) {
-        subHeader += "  [FINE]";
+    // 8-track geometric selector pips in the top center
+    const std::int32_t pipSize = 8;
+    const std::int32_t pipGap = 5;
+    const std::int32_t pipsTotalW =
+        static_cast<std::int32_t>(pocket::TrackCount) * pipSize +
+        static_cast<std::int32_t>(pocket::TrackCount - 1) * pipGap;
+    const std::int32_t pipsX = frame.tempoX + (usableWidth - pipsTotalW) / 2;
+    const std::int32_t pipsY = frame.tempoY + (headerAreaH - pipSize - 6) / 2;
+    for (std::size_t t = 0; t < pocket::TrackCount; ++t) {
+        const bool isSel = (t == ui.state().selectedTrack);
+        const bool isMuted = snapshot.tracks[t].muted;
+        setColor(renderer,
+                 isSel ? frame.palette.accent
+                       : (isMuted ? blendColor(frame.palette.background,
+                                               frame.palette.subdued, 0.35F)
+                                  : frame.palette.subdued));
+        fillRect(renderer,
+                 pipsX + static_cast<std::int32_t>(t) * (pipSize + pipGap),
+                 isSel ? (pipsY - 2) : pipsY, pipSize,
+                 isSel ? (pipSize + 4) : pipSize);
     }
-    drawTextRight(renderer, subHeader, frame.patternX,
-                  frame.tempoY + headerAreaH / 2, patternW, headerAreaH / 2,
-                  frame.palette.subdued, 1);
 
     setColor(renderer,
-             blendColor(frame.palette.background, frame.palette.subdued, 0.50F));
-    fillRect(renderer, frame.tempoX, frame.tracks[0].y - 4, usableWidth, 2);
-
-    // Subtle quarter-phase vertical reference lines across the elastic grid
-    for (int q = 1; q <= 3; ++q) {
-        const std::int32_t gx = frame.patternX + (patternW * q) / 4;
-        setColor(renderer,
-                 blendColor(frame.palette.background, frame.palette.subdued, 0.22F));
-        fillRect(renderer, gx, frame.tracks[0].y, 1,
-                 frame.tracks[pocket::TrackCount - 1].y + frame.rowPitch -
-                     frame.tracks[0].y);
-    }
-
-    // Pre-draw row backgrounds and Euclidean signature tags on the left label column
-    for (std::size_t t = 0; t < pocket::TrackCount; ++t) {
-        const auto& row = frame.tracks[t];
-        const auto& snapTrack = snapshot.tracks[t];
-        if (row.selected) {
-            setColor(renderer,
-                     blendColor(frame.palette.background, frame.palette.subdued, 0.22F));
-            fillRect(renderer, frame.tempoX - 4, row.y + 1, usableWidth + 8,
-                     row.height - 2);
-            setColor(renderer, frame.palette.accent);
-            fillRect(renderer, frame.tempoX - 8, row.y + 3, 4, row.height - 6);
-        }
-        // Sub-label showing E(fill,len,ofs) under the track title
-        const std::string euclidTag =
-            "E(" + std::to_string(snapTrack.rhythm.fill) + "," +
-            std::to_string(snapTrack.rhythm.length) + "," +
-            std::to_string(snapTrack.rhythm.offset) + ")";
-        const auto subColor =
-            row.selected ? frame.palette.accent : frame.palette.subdued;
-        drawText(renderer, euclidTag, frame.tempoX,
-                 row.y + row.height / 2 + 1, frame.patternX - frame.tempoX - 6,
-                 row.height / 2 - 2, subColor, 1);
-    }
+             blendColor(frame.palette.background, frame.palette.subdued, 0.45F));
+    fillRect(renderer, frame.tempoX, frame.tracks[0].y - 5, usableWidth, 2);
 
     std::array<std::size_t, pocket::TrackCount> stepIndex{};
     for (std::size_t index = 0; index < drawList.commandCount; ++index) {
@@ -660,26 +723,22 @@ void renderMainScreen(SDL_Renderer* renderer,
         if (command.type == pocket::ui::MainDrawCommandType::Text) {
             if (command.textRole == pocket::ui::MainTextRole::Tempo) {
                 drawText(renderer, mainTextFor(command), command.x,
-                         frame.tempoY, command.width * 2, headerAreaH / 2,
+                         frame.tempoY + 2, 180, headerAreaH / 2,
                          frame.palette.primary, headerScale);
             } else if (command.textRole == pocket::ui::MainTextRole::Transport) {
                 const auto transportColor =
                     command.playing ? frame.palette.accent : frame.palette.subdued;
                 const std::string trText =
-                    std::string(command.playing ? "> PLAY  STEP " : "|| STOP  STEP ") +
+                    std::string(command.playing ? "> PLAY  " : "|| STOP  ") +
                     std::to_string(command.masterTickPosition);
                 drawText(renderer, trText, command.x,
-                         frame.tempoY + headerAreaH / 2, command.width * 3,
-                         headerAreaH / 2, transportColor, trackTextScale);
+                         frame.tempoY + headerAreaH / 2, 200,
+                         headerAreaH / 2 - 4, transportColor, 1);
             } else {
-                const auto labelColor =
-                    command.selected
-                        ? frame.palette.accent
-                        : (command.muted ? frame.palette.subdued
-                                         : frame.palette.primary);
-                drawText(renderer, mainTextFor(command), command.x,
-                         command.y + 2, command.width - 6, command.height / 2,
-                         labelColor, trackTextScale);
+                // Pure abstract geometric instrument icon (no T1..T8 text!)
+                drawInstrumentGlyph(renderer, frame.palette, command.instrument,
+                                    command.selected, command.muted, command.x,
+                                    command.y, command.width, command.height);
             }
             continue;
         }
@@ -687,59 +746,79 @@ void renderMainScreen(SDL_Renderer* renderer,
             continue;
         }
         const auto trackIdx =
-            static_cast<std::size_t>( std::max<int>(0, command.trackNumber - 1));
+            static_cast<std::size_t>(std::max<int>(0, command.trackNumber - 1));
         const std::size_t curStep = stepIndex[trackIdx]++;
         float light = 0.0F;
         if (engine != nullptr && trackIdx < pocket::TrackCount) {
             light = engine->luminance(trackIdx, curStep);
         }
 
-        auto color = command.color;
+        // Equal-height full-lane geometric tiles:
+        // Active steps and rest steps share the exact same vertical height (command.y, command.height).
+        const std::int32_t bx = command.x;
+        const std::int32_t by = command.y;
+        const std::int32_t bw = command.width;
+        const std::int32_t bh = command.height;
+
+        auto fillColor = command.color;
         if (command.muted) {
-            color = command.active
-                        ? blendColor(frame.palette.background,
-                                     frame.palette.subdued, 0.55F)
-                        : blendColor(frame.palette.background,
-                                     frame.palette.subdued, 0.22F);
+            fillColor = command.active
+                            ? blendColor(frame.palette.background,
+                                         frame.palette.subdued, 0.42F)
+                            : blendColor(frame.palette.background,
+                                         frame.palette.subdued, 0.14F);
         } else if (command.next) {
-            color = frame.palette.accent;
+            fillColor = command.active
+                            ? frame.palette.accent
+                            : blendColor(frame.palette.background,
+                                         frame.palette.accent, 0.38F);
         } else if (command.active) {
-            color = command.selected
-                        ? blendColor(frame.palette.primary, frame.palette.accent,
-                                     0.30F)
-                        : frame.palette.primary;
+            fillColor = command.selected
+                            ? blendColor(frame.palette.primary,
+                                         frame.palette.accent, 0.32F)
+                            : frame.palette.primary;
         } else {
-            color = blendColor(frame.palette.background, frame.palette.subdued,
-                               command.selected ? 0.52F : 0.35F);
+            // Rest step: flat matte tile of identical height
+            fillColor = blendColor(frame.palette.background,
+                                   frame.palette.subdued,
+                                   command.selected ? 0.28F : 0.18F);
         }
         if (light > 0.0F && !command.muted) {
-            color = blendColor(color, frame.palette.accent, light);
+            fillColor = blendColor(fillColor, frame.palette.accent, light);
         }
 
-        // Draw elastic step block
-        setColor(renderer, color);
-        const std::int32_t extraH =
-            (command.selected && command.active) ? 4 : 0;
-        const std::int32_t bx = command.x;
-        const std::int32_t by = command.y - extraH / 2;
-        const std::int32_t bw = command.width;
-        const std::int32_t bh = command.height + extraH;
+        setColor(renderer, fillColor);
         fillRect(renderer, bx, by, bw, bh);
 
-        // Top accent cap on active steps for crisp architectural hierarchy
-        if (command.active && !command.muted && bh >= 10) {
-            setColor(renderer, command.next || command.selected
-                                   ? frame.palette.accent
-                                   : blendColor(frame.palette.primary,
-                                                frame.palette.accent, 0.45F));
-            fillRect(renderer, bx, by, bw, 3);
+        if (command.active && !command.muted) {
+            // Crisp architectural top bar on active pulse blocks
+            setColor(renderer,
+                     command.next || command.selected
+                         ? frame.palette.accent
+                         : blendColor(frame.palette.primary,
+                                      frame.palette.accent, 0.55F));
+            fillRect(renderer, bx, by, bw, std::max<std::int32_t>(3, bh / 12));
+        } else if (!command.active && bw >= 6 && bh >= 10) {
+            // Subtle inner recessed geometric plane on rest tiles so the grid reads as tactile hardware pads
+            const auto innerColor =
+                blendColor(frame.palette.background, frame.palette.subdued,
+                           command.selected ? 0.20F : 0.12F);
+            setColor(renderer, innerColor);
+            fillRect(renderer, bx + 2, by + 2, bw - 4, bh - 4);
+            // Tiny center geometric dot inside rest tile
+            setColor(renderer,
+                     blendColor(frame.palette.background,
+                                command.next ? frame.palette.accent
+                                             : frame.palette.subdued,
+                                command.next ? 0.85F : 0.35F));
+            fillRect(renderer, bx + bw / 2 - 1, by + bh / 2 - 1, 2, 2);
         }
 
-        // Playhead indicator frame/pip on current step
+        // Playhead geometric frame on current step
         if (command.next) {
-            setColor(renderer, frame.palette.primary);
-            fillRect(renderer, bx, by - 3, bw, 2);
-            fillRect(renderer, bx, by + bh + 1, bw, 2);
+            setColor(renderer, frame.palette.accent);
+            fillRect(renderer, bx, by, bw, 3);
+            fillRect(renderer, bx, by + bh - 3, bw, 3);
         }
     }
     drawFooter(renderer, frame.palette, width, height);
@@ -768,7 +847,7 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
     }
 
     // Panel background
-    setColor(renderer, blendColor(palette.background, palette.subdued, 0.18F));
+    setColor(renderer, blendColor(palette.background, palette.subdued, 0.14F));
     fillRect(renderer, x, y, width, height);
 
     const std::int32_t pad = 10;
@@ -776,16 +855,16 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
     const std::int32_t innerW = width - 2 * pad;
 
     // Top row: Summary banner
-    const std::int32_t bannerH = 20;
+    const std::int32_t bannerH = 18;
     const float density =
         rhythm.length > 0
             ? (100.0F * static_cast<float>(rhythm.fill) /
                static_cast<float>(rhythm.length))
             : 0.0F;
     const std::string bannerLeft =
-        "ELASTIC STEP EXPLORER  E(" + std::to_string(rhythm.fill) + "," +
+        "E(" + std::to_string(rhythm.fill) + "," +
         std::to_string(rhythm.length) + "," + std::to_string(rhythm.offset) +
-        ")  DENSITY " + formatNumber("%.0f%%", density);
+        ")   DENSITY " + formatNumber("%.0f%%", density);
     drawText(renderer, bannerLeft, innerX, y + 4, innerW * 2 / 3, bannerH,
              palette.accent, 2);
     const std::string bannerRight =
@@ -794,9 +873,9 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
     drawTextRight(renderer, bannerRight, innerX + innerW * 2 / 3, y + 4,
                   innerW / 3, bannerH, palette.primary, 2);
 
-    // Hero Elastic Step Bar for selected track
+    // Hero Equal-Height Elastic Step Bar for selected track
     const std::int32_t heroY = y + bannerH + 8;
-    const std::int32_t heroH = std::max<std::int32_t>(38, height * 36 / 100);
+    const std::int32_t heroH = std::max<std::int32_t>(42, height * 36 / 100);
     const auto length = static_cast<std::int32_t>(rhythm.length);
     for (std::uint8_t step = 0; step < rhythm.length; ++step) {
         const auto stepIdx = static_cast<std::int32_t>(step);
@@ -811,39 +890,47 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
         const bool active = pocket::EuclideanGenerator::isActive(rhythm, step);
         const bool isPlayhead =
             sequencer.isPlaying() && (selectedTrack.position == step);
-        const std::int32_t barH = active ? heroH : (heroH * 9 / 20);
-        const std::int32_t barY = heroY + (heroH - barH) / 2;
 
+        // Equal vertical height for both active and rest steps!
         const auto color =
             isPlayhead
-                ? palette.accent
-                : (active ? blendColor(palette.primary, palette.accent, 0.25F)
+                ? (active ? palette.accent
+                          : blendColor(palette.background, palette.accent, 0.40F))
+                : (active ? blendColor(palette.primary, palette.accent, 0.28F)
                           : blendColor(palette.background, palette.subdued,
-                                       0.48F));
+                                       0.24F));
         setColor(renderer, color);
-        fillRect(renderer, cellX0, barY, barW, barH);
+        fillRect(renderer, cellX0, heroY, barW, heroH);
 
-        if (active && barH >= 14) {
+        if (active) {
             setColor(renderer, palette.accent);
-            fillRect(renderer, cellX0, barY, barW, 3);
+            fillRect(renderer, cellX0, heroY, barW, 4);
+        } else if (barW >= 6) {
+            setColor(renderer,
+                     blendColor(palette.background, palette.subdued, 0.16F));
+            fillRect(renderer, cellX0 + 2, heroY + 2, barW - 4, heroH - 4);
+            setColor(renderer,
+                     blendColor(palette.background, palette.subdued, 0.40F));
+            fillRect(renderer, cellX0 + barW / 2 - 1, heroY + heroH / 2 - 1, 2,
+                     2);
         }
-        // Step index number inside wide cells or on active beats
-        if (barW >= 18) {
-            const auto numColor =
-                active ? palette.background : palette.subdued;
-            drawText(renderer, std::to_string(step + 1), cellX0 + 2,
-                     barY + barH - 11, barW - 4, 9, numColor, 1);
+
+        if (isPlayhead) {
+            setColor(renderer, palette.accent);
+            fillRect(renderer, cellX0, heroY, barW, 3);
+            fillRect(renderer, cellX0, heroY + heroH - 3, barW, 3);
         }
     }
 
-    // Bottom section: 8-Track Polymetric Phase Comparison Strip
+    // Bottom section: 8-Track Polymetric Phase Matrix with compact geometric instrument markers (no T1..T8 text!)
     const std::int32_t matrixTop = heroY + heroH + 8;
-    const std::int32_t matrixH = std::max<std::int32_t>(24, y + height - matrixTop - 6);
-    const std::int32_t stripPitch =
-        std::max<std::int32_t>(3, matrixH / static_cast<std::int32_t>(pocket::TrackCount));
-    const std::int32_t tagW = 36;
-    const std::int32_t stripX = innerX + tagW;
-    const std::int32_t stripW = innerW - tagW;
+    const std::int32_t matrixH =
+        std::max<std::int32_t>(32, y + height - matrixTop - 6);
+    const std::int32_t stripPitch = std::max<std::int32_t>(
+        4, matrixH / static_cast<std::int32_t>(pocket::TrackCount));
+    const std::int32_t iconColW = 18;
+    const std::int32_t stripX = innerX + iconColW;
+    const std::int32_t stripW = innerW - iconColW;
 
     for (std::size_t t = 0; t < pocket::TrackCount; ++t) {
         const auto tr = ui.effectiveTrackState(t);
@@ -858,13 +945,30 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
         const std::int32_t sy =
             matrixTop + static_cast<std::int32_t>(t) * stripPitch;
         const bool isSel = (t == selectedIdx);
-        drawText(renderer, "T" + std::to_string(t + 1), innerX, sy, tagW - 4,
-                 stripPitch, isSel ? palette.accent : palette.subdued, 1);
+        const std::int32_t sh = std::max<std::int32_t>(3, stripPitch - 2);
+
+        // Mini geometric indicator on left (Sampler = 3 mini vertical bars, Synth = hollow square/block)
+        const auto markerColor =
+            isSel ? palette.accent
+                  : (tr.muted ? blendColor(palette.background, palette.subdued, 0.35F)
+                              : palette.subdued);
+        setColor(renderer, markerColor);
+        if (tr.instrument == pocket::InstrumentType::Sampler) {
+            fillRect(renderer, innerX + 2, sy + 2, 2, std::max<std::int32_t>(1, sh - 2));
+            fillRect(renderer, innerX + 6, sy + 1, 2, sh);
+            fillRect(renderer, innerX + 10, sy + 2, 2, std::max<std::int32_t>(1, sh - 2));
+        } else {
+            fillRect(renderer, innerX + 2, sy + 1, 10, sh);
+            if (sh >= 5) {
+                setColor(renderer, palette.background);
+                fillRect(renderer, innerX + 4, sy + 2, 6, sh - 2);
+            }
+        }
 
         const auto trLen = static_cast<std::int32_t>(trRhythm.length);
-        const std::int32_t sh = std::max<std::int32_t>(2, stripPitch - 2);
         for (std::uint8_t s = 0; s < trRhythm.length; ++s) {
-            const auto sx0 = stripX + (static_cast<std::int32_t>(s) * stripW) / trLen;
+            const auto sx0 =
+                stripX + (static_cast<std::int32_t>(s) * stripW) / trLen;
             const auto sx1 =
                 stripX + (static_cast<std::int32_t>(s + 1) * stripW) / trLen;
             const auto sw = std::max<std::int32_t>(1, sx1 - sx0 - 1);
@@ -872,7 +976,8 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
                 pocket::EuclideanGenerator::isActive(trRhythm, s);
             const auto sColor =
                 sActive ? (isSel ? palette.accent : palette.primary)
-                        : blendColor(palette.background, palette.subdued, 0.28F);
+                        : blendColor(palette.background, palette.subdued,
+                                     isSel ? 0.32F : 0.20F);
             setColor(renderer, sColor);
             fillRect(renderer, sx0, sy + 1, sw, sh);
         }
@@ -1159,14 +1264,16 @@ void renderRows(SDL_Renderer* renderer,
                 std::size_t selectedRow,
                 std::int32_t width,
                 std::int32_t height,
-                std::int32_t topBannerReserve = 0) {
+                std::int32_t topBannerReserve = 0,
+                std::optional<pocket::InstrumentType> headerInstrument = std::nullopt,
+                bool headerMuted = false) {
     const std::int32_t margin = std::max<std::int32_t>(16, width / 24);
     const std::int32_t headerHeight = std::max<std::int32_t>(36, height / 13);
     const std::int32_t footerReserve = std::max<std::int32_t>(32, height / 16);
     const std::int32_t topY = std::max<std::int32_t>(10, height / 42);
 
     drawHeaderBar(renderer, palette, title, headerRight, margin, topY, width,
-                  headerHeight);
+                  headerHeight, headerInstrument, headerMuted);
 
     std::int32_t contentTop =
         topY + headerHeight + std::max<std::int32_t>(6, height / 72) +
@@ -1257,11 +1364,11 @@ void renderMixerScreen(SDL_Renderer* renderer,
         std::clamp<std::int32_t>(pitch / (pocket::app::GlyphHeight * 2), 1, 2);
 
     const std::int32_t usableWidth = width - 2 * margin;
-    const std::int32_t labelWidth = usableWidth * 13 / 100;
-    const std::int32_t volBarX = margin + labelWidth;
-    const std::int32_t volBarW = usableWidth * 44 / 100;
+    const std::int32_t iconWidth = std::max<std::int32_t>(28, usableWidth * 5 / 100);
+    const std::int32_t volBarX = margin + iconWidth + 8;
+    const std::int32_t volBarW = usableWidth * 52 / 100;
     const std::int32_t panBarX = volBarX + volBarW + usableWidth * 2 / 100;
-    const std::int32_t panBarW = usableWidth * 20 / 100;
+    const std::int32_t panBarW = usableWidth * 22 / 100;
     const std::int32_t textX = panBarX + panBarW + usableWidth * 2 / 100;
     const std::int32_t textWidth = margin + usableWidth - textX;
 
@@ -1275,19 +1382,9 @@ void renderMixerScreen(SDL_Renderer* renderer,
             isSelected ? palette.accent
                        : (state.muted ? palette.subdued : palette.primary);
 
-        if (isSelected) {
-            setColor(renderer,
-                     blendColor(palette.background, palette.subdued, 0.22F));
-            fillRect(renderer, margin - 4, y + 1, usableWidth + 8, pitch - 2);
-            setColor(renderer, palette.accent);
-            fillRect(renderer, margin - 8, y + 3, 4, pitch - 6);
-        }
-
-        const std::string trLabel =
-            "T" + std::to_string(track + 1) + " " +
-            (state.instrument == pocket::InstrumentType::Sampler ? "SMP" : "SYN");
-        drawText(renderer, trLabel, margin, y, labelWidth, pitch, color,
-                 rowScale);
+        // Abstract geometric instrument icon instead of T1..T8 text
+        drawInstrumentGlyph(renderer, palette, state.instrument, isSelected,
+                            state.muted, margin, y, iconWidth, pitch);
 
         const float volRatio =
             state.muted ? 0.0F : static_cast<float>(state.volume) / 100.0F;
@@ -1322,15 +1419,11 @@ void renderMixerScreen(SDL_Renderer* renderer,
     y += std::max<std::int32_t>(6, pitch / 5);
 
     const auto& masterColor = masterSelected ? palette.accent : palette.primary;
-    if (masterSelected) {
-        setColor(renderer,
-                 blendColor(palette.background, palette.subdued, 0.22F));
-        fillRect(renderer, margin - 4, y + 1, usableWidth + 8, pitch - 2);
-        setColor(renderer, palette.accent);
-        fillRect(renderer, margin - 8, y + 3, 4, pitch - 6);
-    }
-    drawText(renderer, "MASTER", margin, y, labelWidth, pitch, masterColor,
-             rowScale);
+    // Master geometric double-bar glyph
+    setColor(renderer, masterColor);
+    fillRect(renderer, margin + 4, y + pitch / 4, iconWidth - 8, 4);
+    fillRect(renderer, margin + 4, y + pitch / 2 + 2, iconWidth - 8, 4);
+
     const float masterRatio =
         static_cast<float>(ui.systemSettings().audio.masterVolumePercent) /
         100.0F;
@@ -1349,11 +1442,12 @@ void renderMixerScreen(SDL_Renderer* renderer,
     }
     drawTextRight(
         renderer,
-        std::to_string(ui.systemSettings().audio.masterVolumePercent) + "%",
+        "MST " + std::to_string(ui.systemSettings().audio.masterVolumePercent) + "%",
         textX, y, textWidth, pitch, masterColor, rowScale);
 
     drawFooter(renderer, palette, width, height);
 }
+
 
 std::vector<ScreenRow> editRows(const pocket::TrackState& track) {
     const float lengthRatio =
@@ -2149,10 +2243,11 @@ int runSdlApp(const AppOptions& options) {
                 break;
             case pocket::ui::Screen::Edit: {
                 const std::int32_t explorerH = std::max<std::int32_t>(140, height * 28 / 100);
-                renderRows(renderer, *palette, "EDIT" + trackTitleSuffix,
+                renderRows(renderer, *palette, "EDIT",
                            headerStatus, editRows(selectedTrack),
                            static_cast<std::size_t>(ui.state().editField),
-                           width, height, explorerH + 12);
+                           width, height, explorerH + 12,
+                           selectedTrack.instrument, selectedTrack.muted);
                 drawEditEuclideanExplorer(renderer, *palette, sequencer, ui,
                                           margin, bannerTop, bannerW,
                                           explorerH);
@@ -2160,10 +2255,11 @@ int runSdlApp(const AppOptions& options) {
             }
             case pocket::ui::Screen::Sound: {
                 const std::int32_t vizH = std::max<std::int32_t>(88, height * 15 / 100);
-                renderRows(renderer, *palette, "SOUND" + trackTitleSuffix,
+                renderRows(renderer, *palette, "SOUND",
                            headerStatus, soundRows(selectedTrack, ui.effects()),
                            static_cast<std::size_t>(ui.state().soundField),
-                           width, height, vizH + 10);
+                           width, height, vizH + 10,
+                           selectedTrack.instrument, selectedTrack.muted);
                 drawSoundVisualizer(renderer, *palette, selectedTrack,
                                     ui.effects(), margin, bannerTop, bannerW,
                                     vizH);
@@ -2176,10 +2272,11 @@ int runSdlApp(const AppOptions& options) {
                 break;
             case pocket::ui::Screen::Modulation: {
                 const std::int32_t vizH = std::max<std::int32_t>(84, height * 14 / 100);
-                renderRows(renderer, *palette, "MODULATION" + trackTitleSuffix,
+                renderRows(renderer, *palette, "MODULATION",
                            headerStatus, modulationRows(selectedTrack),
                            static_cast<std::size_t>(ui.state().modulationField),
-                           width, height, vizH + 10);
+                           width, height, vizH + 10,
+                           selectedTrack.instrument, selectedTrack.muted);
                 drawModulationVisualizer(renderer, *palette, selectedTrack,
                                          margin, bannerTop, bannerW, vizH);
                 break;
