@@ -1,4 +1,7 @@
 ## Notes
+As of October 26, 2026, it is up and running. I'm not satisfied with the UI. There are still a lot of parts that haven't been implemented yet.
+But I've run out of credits to use for coding!!!!!
+
 
 Pocket Euclidean is a Euclidean-rhythm groovebox. Eight tracks each have length / fill / offset, an AD envelope and filter, LFO and jitter modulation, and a mixer with level meters. Playback is driven by the audio clock, so timing does not depend on the screen frame rate.
 
