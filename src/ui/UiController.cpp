@@ -175,6 +175,20 @@ void UiController::dispatchMain(ActionEvent event) {
     case Action::TrackNext:
         selectTrack(1);
         break;
+    case Action::NavLeft:
+    case Action::NavRight: {
+        const int direction = event.action == Action::NavRight ? 1 : -1;
+        const bool fine = event.fine || state_.fineAdjust;
+        const double step = fine ? 1.0 : 5.0;
+        const double nextTempo = std::clamp(
+            sequencer_.tempo() + static_cast<double>(direction) * step,
+            Sequencer::MinTempoBpm, Sequencer::MaxTempoBpm);
+        if (sequencer_.setTempo(nextTempo)) {
+            systemSettings_.clock.initialTempoBpm = nextTempo;
+            state_.modified = true;
+        }
+        break;
+    }
     case Action::Confirm:
         state_.screen = Screen::Edit;
         break;
@@ -281,6 +295,11 @@ void UiController::dispatchSound(ActionEvent event) {
         break;
     case Action::NavRight:
         changeSoundValue(1, event.fine || state_.fineAdjust);
+        break;
+    case Action::Confirm:
+        if (state_.soundField == SoundField::FilterEnabled) {
+            changeSoundValue(1, false);
+        }
         break;
     case Action::Back:
         state_.screen = Screen::Edit;
@@ -637,13 +656,25 @@ void UiController::dispatchMixer(ActionEvent event) {
 }
 
 void UiController::dispatchSystem(ActionEvent event) {
-    if ((event.action == Action::NavLeft || event.action == Action::NavRight) &&
-        state_.systemCategory == platform::SettingsCategory::Display) {
+    if (event.action == Action::NavLeft || event.action == Action::NavRight) {
         const int direction = event.action == Action::NavRight ? 1 : -1;
-        const auto nextTheme =
-            adjacentTheme(systemSettings_.display.theme, direction);
-        if (nextTheme.has_value()) {
-            systemSettings_.display.theme = *nextTheme;
+        const bool fine = event.fine || state_.fineAdjust;
+        if (state_.systemCategory ==
+            platform::SettingsCategory::ClockAndTransport) {
+            const double step = fine ? 1.0 : 5.0;
+            const double nextTempo = std::clamp(
+                systemSettings_.clock.initialTempoBpm +
+                    static_cast<double>(direction) * step,
+                Sequencer::MinTempoBpm, Sequencer::MaxTempoBpm);
+            systemSettings_.clock.initialTempoBpm = nextTempo;
+            sequencer_.setTempo(nextTempo);
+        } else if (state_.systemCategory ==
+                   platform::SettingsCategory::Display) {
+            const auto nextTheme =
+                adjacentTheme(systemSettings_.display.theme, direction);
+            if (nextTheme.has_value()) {
+                systemSettings_.display.theme = *nextTheme;
+            }
         }
     } else if (event.action == Action::NavUp ||
                event.action == Action::NavDown) {
@@ -740,9 +771,21 @@ void UiController::changeEditValue(int direction, bool fine) {
         break;
     }
 
-    case EditField::Mute:
-        changed = false;
+    case EditField::Mute: {
+        const auto track = audioSettings(state_.selectedTrack);
+        if (!postAudioParameter(audio::AudioParameter::TrackMute,
+                                state_.selectedTrack,
+                                track.muted ? 0.0F : 1.0F)) {
+            state_.audioParameterRejected = true;
+            changed = false;
+            break;
+        }
+        if (audioParameterQueue_ == nullptr) {
+            sequencer_.setMuted(state_.selectedTrack, !track.muted);
+        }
+        changed = true;
         break;
+    }
     }
 
     if (changed) {

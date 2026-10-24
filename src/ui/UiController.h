@@ -123,29 +123,32 @@ public:
         Sequencer& sequencer,
         platform::SystemCapabilities capabilities = {}) noexcept
         : sequencer_(sequencer), capabilities_(capabilities) {
-        for (std::size_t track = 0; track < TrackCount; ++track) {
-            const auto& source = sequencer_.track(track);
-            state_.audioTrackSettings[track] = {
-                source.volume, source.pan, source.muted, source.envelope,
-                source.filter};
-        }
+        systemSettings_.clock.initialTempoBpm = sequencer_.tempo();
+        resyncFromSequencer();
     }
 
     const UiState& state() const noexcept { return state_; }
     const platform::SystemSettings& systemSettings() const noexcept {
         return systemSettings_;
     }
+    TrackState effectiveTrackState(std::size_t track) const noexcept {
+        const std::size_t bounded =
+            track < TrackCount ? track : (TrackCount - 1);
+        TrackState effective = sequencer_.track(bounded);
+        const auto& shadow = state_.audioTrackSettings[bounded];
+        effective.volume = shadow.volume;
+        effective.pan = shadow.pan;
+        effective.muted = shadow.muted;
+        effective.envelope = shadow.envelope;
+        effective.filter = shadow.filter;
+        return effective;
+    }
     void dispatch(ActionEvent event);
     void setAudioParameterQueue(
         audio::AudioParameterQueue* queue) noexcept {
         audioParameterQueue_ = queue;
         if (queue != nullptr) {
-            for (std::size_t track = 0; track < TrackCount; ++track) {
-                const auto& source = sequencer_.track(track);
-                state_.audioTrackSettings[track] = {
-                    source.volume, source.pan, source.muted, source.envelope,
-                    source.filter};
-            }
+            resyncFromSequencer();
         }
     }
     // Re-reads the Sequencer after the project layer replaced its contents.
@@ -164,6 +167,7 @@ public:
             return false;
         }
         systemSettings_ = settings;
+        sequencer_.setTempo(systemSettings_.clock.initialTempoBpm);
         return true;
     }
     void setModified(bool modified) noexcept { state_.modified = modified; }

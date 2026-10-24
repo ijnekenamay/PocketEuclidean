@@ -1,6 +1,7 @@
 #include "ui/MainScreenModel.h"
 
 #include "sequencer/EuclideanGenerator.h"
+#include "ui/UiController.h"
 
 namespace pocket::ui {
 
@@ -41,6 +42,21 @@ bool makeMainScreenSnapshot(const Sequencer& sequencer,
     }
 
     snapshot = next;
+    return true;
+}
+
+bool makeMainScreenSnapshot(
+    const Sequencer& sequencer,
+    std::size_t selectedTrack,
+    const std::array<TrackAudioSettings, TrackCount>& audioTrackSettings,
+    MainScreenSnapshot& snapshot) {
+    if (!makeMainScreenSnapshot(sequencer, selectedTrack, snapshot)) {
+        return false;
+    }
+    for (std::size_t trackIndex = 0; trackIndex < TrackCount; ++trackIndex) {
+        snapshot.tracks[trackIndex].muted =
+            audioTrackSettings[trackIndex].muted;
+    }
     return true;
 }
 
