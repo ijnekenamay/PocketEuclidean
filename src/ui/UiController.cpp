@@ -2,12 +2,13 @@
 #include "ui/ThemePalette.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace pocket::ui {
 namespace {
 
 constexpr std::size_t EditFieldCount = 6;
-constexpr std::size_t SoundFieldCount = 4;
+constexpr std::size_t SoundFieldCount = 11;
 constexpr std::size_t ModulationFieldCount = 13;
 constexpr std::size_t MixerFieldCount = 4;
 constexpr std::size_t SettingsCategoryCount = 7;
@@ -322,10 +323,42 @@ void UiController::dispatchSound(ActionEvent event) {
 
 void UiController::changeSoundValue(int direction, bool fine) {
     const auto track = audioSettings(state_.selectedTrack);
-    auto envelope = track.envelope;
-    const float increment = fine ? 0.001F : 0.01F;
-    if (state_.soundField == SoundField::FilterEnabled ||
-        state_.soundField == SoundField::FilterCutoff) {
+    switch (state_.soundField) {
+    case SoundField::Attack:
+    case SoundField::Decay: {
+        auto envelope = track.envelope;
+        const float increment = fine ? 0.001F : 0.01F;
+        if (state_.soundField == SoundField::Attack) {
+            envelope.attackSeconds +=
+                static_cast<float>(direction) * increment;
+            envelope.attackSeconds = std::clamp(
+                envelope.attackSeconds, AdEnvelopeSettings::MinAttackSeconds,
+                AdEnvelopeSettings::MaxAttackSeconds);
+        } else {
+            envelope.decaySeconds +=
+                static_cast<float>(direction) * increment * 10.0F;
+            envelope.decaySeconds = std::clamp(
+                envelope.decaySeconds, AdEnvelopeSettings::MinDecaySeconds,
+                AdEnvelopeSettings::MaxDecaySeconds);
+        }
+        const auto parameter = state_.soundField == SoundField::Attack
+                                   ? audio::AudioParameter::TrackAttack
+                                   : audio::AudioParameter::TrackDecay;
+        const float value = state_.soundField == SoundField::Attack
+                                ? envelope.attackSeconds
+                                : envelope.decaySeconds;
+        if (!postAudioParameter(parameter, state_.selectedTrack, value)) {
+            state_.audioParameterRejected = true;
+            return;
+        }
+        if (audioParameterQueue_ != nullptr ||
+            sequencer_.setEnvelope(state_.selectedTrack, envelope)) {
+            state_.modified = true;
+        }
+        return;
+    }
+    case SoundField::FilterEnabled:
+    case SoundField::FilterCutoff: {
         auto filter = track.filter;
         if (state_.soundField == SoundField::FilterEnabled) {
             filter.enabled = !filter.enabled;
@@ -354,31 +387,109 @@ void UiController::changeSoundValue(int direction, bool fine) {
         }
         return;
     }
-    if (state_.soundField == SoundField::Attack) {
-        envelope.attackSeconds += static_cast<float>(direction) * increment;
-        envelope.attackSeconds = std::clamp(
-            envelope.attackSeconds, AdEnvelopeSettings::MinAttackSeconds,
-            AdEnvelopeSettings::MaxAttackSeconds);
-    } else {
-        envelope.decaySeconds +=
-            static_cast<float>(direction) * increment * 10.0F;
-        envelope.decaySeconds = std::clamp(
-            envelope.decaySeconds, AdEnvelopeSettings::MinDecaySeconds,
-            AdEnvelopeSettings::MaxDecaySeconds);
-    }
-    const auto parameter = state_.soundField == SoundField::Attack
-                               ? audio::AudioParameter::TrackAttack
-                               : audio::AudioParameter::TrackDecay;
-    const float value = state_.soundField == SoundField::Attack
-                            ? envelope.attackSeconds
-                            : envelope.decaySeconds;
-    if (!postAudioParameter(parameter, state_.selectedTrack, value)) {
-        state_.audioParameterRejected = true;
+    case SoundField::Pitch:
+    case SoundField::Morph:
+    case SoundField::Timbre:
+    case SoundField::Color: {
+        auto synth = track.synth;
+        audio::AudioParameter parameter =
+            audio::AudioParameter::TrackSynthPitch;
+        float value = 0.0F;
+        if (state_.soundField == SoundField::Pitch) {
+            const float step = fine ? 1.0F : 10.0F;
+            synth.pitchHz = std::clamp(
+                synth.pitchHz + static_cast<float>(direction) * step,
+                TrackSynthSettings::MinPitchHz,
+                TrackSynthSettings::MaxPitchHz);
+            parameter = audio::AudioParameter::TrackSynthPitch;
+            value = synth.pitchHz;
+        } else if (state_.soundField == SoundField::Morph) {
+            const float step = fine ? 0.01F : 0.05F;
+            synth.morph = std::clamp(
+                std::round((synth.morph + static_cast<float>(direction) * step) *
+                           100.0F) /
+                    100.0F,
+                0.0F, 1.0F);
+            parameter = audio::AudioParameter::TrackSynthMorph;
+            value = synth.morph;
+        } else if (state_.soundField == SoundField::Timbre) {
+            const float step = fine ? 0.01F : 0.05F;
+            synth.timbre = std::clamp(
+                std::round((synth.timbre + static_cast<float>(direction) * step) *
+                           100.0F) /
+                    100.0F,
+                0.0F, 1.0F);
+            parameter = audio::AudioParameter::TrackSynthTimbre;
+            value = synth.timbre;
+        } else {
+            const float step = fine ? 0.01F : 0.05F;
+            synth.color = std::clamp(
+                std::round((synth.color + static_cast<float>(direction) * step) *
+                           100.0F) /
+                    100.0F,
+                0.0F, 1.0F);
+            parameter = audio::AudioParameter::TrackSynthColor;
+            value = synth.color;
+        }
+        if (!postAudioParameter(parameter, state_.selectedTrack, value)) {
+            state_.audioParameterRejected = true;
+            return;
+        }
+        if (audioParameterQueue_ != nullptr ||
+            sequencer_.setSynth(state_.selectedTrack, synth)) {
+            state_.modified = true;
+        }
         return;
     }
-    if (audioParameterQueue_ != nullptr ||
-        sequencer_.setEnvelope(state_.selectedTrack, envelope)) {
+    case SoundField::DelayTime: {
+        const int step = fine ? 5 : 25;
+        const int nextMs = std::clamp(
+            static_cast<int>(state_.effects.delayMilliseconds) +
+                direction * step,
+            static_cast<int>(audio::DelayEffect::MinDelayMs),
+            static_cast<int>(audio::DelayEffect::MaxDelayMs));
+        if (!postAudioParameter(audio::AudioParameter::DelayTimeMs, 0,
+                                static_cast<float>(nextMs))) {
+            state_.audioParameterRejected = true;
+            return;
+        }
+        state_.effects.delayMilliseconds = static_cast<std::uint16_t>(nextMs);
         state_.modified = true;
+        return;
+    }
+    case SoundField::DelayFeedback: {
+        const float step = fine ? 0.01F : 0.05F;
+        const float nextFb = std::clamp(
+            std::round((state_.effects.delayFeedback +
+                        static_cast<float>(direction) * step) *
+                       100.0F) /
+                100.0F,
+            0.0F, audio::DelayEffect::MaxFeedback);
+        if (!postAudioParameter(audio::AudioParameter::DelayFeedback, 0,
+                                nextFb)) {
+            state_.audioParameterRejected = true;
+            return;
+        }
+        state_.effects.delayFeedback = nextFb;
+        state_.modified = true;
+        return;
+    }
+    case SoundField::DelayMix: {
+        const float step = fine ? 0.01F : 0.05F;
+        const float nextMix = std::clamp(
+            std::round((state_.effects.delayMix +
+                        static_cast<float>(direction) * step) *
+                       100.0F) /
+                100.0F,
+            0.0F, 1.0F);
+        if (!postAudioParameter(audio::AudioParameter::DelayMix, 0, nextMix)) {
+            state_.audioParameterRejected = true;
+            return;
+        }
+        state_.effects.delayMix = nextMix;
+        state_.modified = true;
+        return;
+    }
     }
 }
 
@@ -799,7 +910,7 @@ TrackAudioSettings UiController::audioSettings(std::size_t track) const noexcept
     }
     const auto& source = sequencer_.track(track);
     return {source.volume, source.pan, source.muted, source.envelope,
-            source.filter};
+            source.filter, source.synth};
 }
 
 bool UiController::postAudioParameter(audio::AudioParameter parameter,
@@ -809,6 +920,12 @@ bool UiController::postAudioParameter(audio::AudioParameter parameter,
         !audioParameterQueue_->push(
             {parameter, static_cast<std::uint8_t>(track), value})) {
         return false;
+    }
+    if (parameter == audio::AudioParameter::MasterVolume ||
+        parameter == audio::AudioParameter::DelayTimeMs ||
+        parameter == audio::AudioParameter::DelayFeedback ||
+        parameter == audio::AudioParameter::DelayMix) {
+        return true;
     }
     auto& settings = state_.audioTrackSettings[track];
     switch (parameter) {
@@ -833,6 +950,21 @@ bool UiController::postAudioParameter(audio::AudioParameter parameter,
     case audio::AudioParameter::TrackFilterCutoff:
         settings.filter.cutoffHz = value;
         break;
+    case audio::AudioParameter::TrackSynthPitch:
+        settings.synth.pitchHz = value;
+        break;
+    case audio::AudioParameter::TrackSynthMorph:
+        settings.synth.morph = value;
+        break;
+    case audio::AudioParameter::TrackSynthTimbre:
+        settings.synth.timbre = value;
+        break;
+    case audio::AudioParameter::TrackSynthColor:
+        settings.synth.color = value;
+        break;
+    case audio::AudioParameter::DelayTimeMs:
+    case audio::AudioParameter::DelayFeedback:
+    case audio::AudioParameter::DelayMix:
     case audio::AudioParameter::MasterVolume:
         break;
     }

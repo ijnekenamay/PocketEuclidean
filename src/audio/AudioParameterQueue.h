@@ -17,6 +17,13 @@ enum class AudioParameter : std::uint8_t {
     TrackDecay,
     TrackFilterEnabled,
     TrackFilterCutoff,
+    TrackSynthPitch,
+    TrackSynthMorph,
+    TrackSynthTimbre,
+    TrackSynthColor,
+    DelayTimeMs,
+    DelayFeedback,
+    DelayMix,
     MasterVolume
 };
 
@@ -28,7 +35,7 @@ struct AudioParameterCommand {
 
 class AudioParameterQueue {
 public:
-    static constexpr std::size_t Capacity = 64;
+    static constexpr std::size_t Capacity = 128;
 
     bool push(const AudioParameterCommand& command) noexcept;
     bool pop(AudioParameterCommand& command) noexcept;

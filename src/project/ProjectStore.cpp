@@ -138,6 +138,12 @@ bool parseTrackLine(const std::string& key, std::istringstream& in,
         track.filter.enabled = enabled != 0;
         return true;
     }
+    if (field == "synth") {
+        return readFloat(in, track.synth.pitchHz) &&
+               readFloat(in, track.synth.morph) &&
+               readFloat(in, track.synth.timbre) &&
+               readFloat(in, track.synth.color);
+    }
     return false;
 }
 
@@ -158,6 +164,7 @@ ProjectData captureProject(const Sequencer& sequencer) {
         target.pan = source.pan;
         target.envelope = source.envelope;
         target.filter = source.filter;
+        target.synth = source.synth;
     }
     return project;
 }
@@ -175,6 +182,7 @@ ProjectData captureProject(
         target.muted = shadow.muted;
         target.envelope = shadow.envelope;
         target.filter = shadow.filter;
+        target.synth = shadow.synth;
     }
     if (effects != nullptr) {
         project.effects = *effects;
@@ -197,6 +205,7 @@ bool applyProject(const ProjectData& project, Sequencer& sequencer) {
         ok = sequencer.setPan(i, source.pan) && ok;
         ok = sequencer.setEnvelope(i, source.envelope) && ok;
         ok = sequencer.setFilter(i, source.filter) && ok;
+        ok = sequencer.setSynth(i, source.synth) && ok;
     }
     return ok;
 }
@@ -231,6 +240,9 @@ std::string serializeProject(const ProjectData& project) {
             << t.envelope.decaySeconds << '\n';
         out << prefix << "filter " << int(t.filter.enabled) << ' '
             << t.filter.cutoffHz << '\n';
+        out << prefix << "synth " << t.synth.pitchHz << ' '
+            << t.synth.morph << ' ' << t.synth.timbre << ' '
+            << t.synth.color << '\n';
     }
     const auto& fx = project.effects;
     out << "fx " << fx.delayMilliseconds << ' ' << fx.delayFeedback << ' '

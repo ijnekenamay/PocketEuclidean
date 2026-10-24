@@ -1,6 +1,8 @@
 #pragma once
 
 #include "audio/AudioParameterQueue.h"
+#include "audio/DelayEffect.h"
+#include "project/ProjectData.h"
 #include "sequencer/Sequencer.h"
 #include "ui/InputMapping.h"
 #include "platform/SystemSettings.h"
@@ -47,7 +49,14 @@ enum class SoundField : std::uint8_t {
     Attack,
     Decay,
     FilterEnabled,
-    FilterCutoff
+    FilterCutoff,
+    Pitch,
+    Morph,
+    Timbre,
+    Color,
+    DelayTime,
+    DelayFeedback,
+    DelayMix
 };
 
 enum class Modal : std::uint8_t {
@@ -95,6 +104,7 @@ struct TrackAudioSettings {
     bool muted = false;
     AdEnvelopeSettings envelope{};
     TrackFilterSettings filter{};
+    TrackSynthSettings synth{};
 };
 
 struct UiState {
@@ -115,6 +125,7 @@ struct UiState {
     bool fineAdjust = false;
     bool audioParameterRejected = false;
     std::array<TrackAudioSettings, TrackCount> audioTrackSettings{};
+    project::ProjectEffectState effects{};
 };
 
 class UiController {
@@ -131,6 +142,22 @@ public:
     const platform::SystemSettings& systemSettings() const noexcept {
         return systemSettings_;
     }
+    const project::ProjectEffectState& effects() const noexcept {
+        return state_.effects;
+    }
+    bool setEffects(const project::ProjectEffectState& effects) noexcept {
+        if (!std::isfinite(effects.delayFeedback) ||
+            !std::isfinite(effects.delayMix) ||
+            effects.delayMilliseconds < audio::DelayEffect::MinDelayMs ||
+            effects.delayMilliseconds > audio::DelayEffect::MaxDelayMs ||
+            effects.delayFeedback < 0.0F ||
+            effects.delayFeedback > audio::DelayEffect::MaxFeedback ||
+            effects.delayMix < 0.0F || effects.delayMix > 1.0F) {
+            return false;
+        }
+        state_.effects = effects;
+        return true;
+    }
     TrackState effectiveTrackState(std::size_t track) const noexcept {
         const std::size_t bounded =
             track < TrackCount ? track : (TrackCount - 1);
@@ -141,6 +168,7 @@ public:
         effective.muted = shadow.muted;
         effective.envelope = shadow.envelope;
         effective.filter = shadow.filter;
+        effective.synth = shadow.synth;
         return effective;
     }
     void dispatch(ActionEvent event);
@@ -157,7 +185,7 @@ public:
             const auto& source = sequencer_.track(track);
             state_.audioTrackSettings[track] = {
                 source.volume, source.pan, source.muted, source.envelope,
-                source.filter};
+                source.filter, source.synth};
         }
     }
     ProjectRequest takeProjectRequest() noexcept;

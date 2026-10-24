@@ -431,6 +431,9 @@ void testMainScreenLayout() {
     for (const auto& row : frame.tracks) {
         expect(row.y >= 0 && row.y + row.height <= frame.height,
                "track row remains within the viewport");
+        const auto expectedPitch =
+            (frame.width - frame.tempoX - frame.patternX) /
+            static_cast<std::int32_t>(row.stepCount);
         for (std::uint8_t step = 0; step < row.stepCount; ++step) {
             const auto& bar = row.steps[step];
             expect(bar.x >= frame.patternX &&
@@ -438,10 +441,16 @@ void testMainScreenLayout() {
                        bar.y >= row.y && bar.y + bar.height <= row.y + row.height,
                    "step bars remain inside the viewport and their track row");
             if (step + 1 < row.stepCount) {
-                expect(row.steps[step + 1].x - bar.x == frame.stepPitch,
-                       "step spacing is uniform and independent of pattern length");
+                const auto actualPitch = row.steps[step + 1].x - bar.x;
+                expect(std::abs(actualPitch - expectedPitch) <= 1 &&
+                           bar.x + bar.width <= row.steps[step + 1].x,
+                       "elastic step spacing scales uniformly to fill full width for each track length");
             }
         }
+        const auto& lastBar = row.steps[row.stepCount - 1];
+        expect(row.steps[0].x == frame.patternX &&
+                   lastBar.x + lastBar.width == frame.width - frame.tempoX,
+               "elastic step bars span the full available pattern width regardless of step count");
     }
     expect(frame.tracks[0].steps[0].next &&
                frame.tracks[0].steps[0].active,
@@ -962,7 +971,50 @@ void testEffectiveTrackStateAndTempoControls() {
     expect(tempoSeq.tempo() == 129.0 &&
                tempoUi.systemSettings().clock.initialTempoBpm == 129,
            "SYSTEM > ClockAndTransport Left/Right adjusts tempo");
+    // Synth and Delay parameters on SOUND screen
+    Sequencer synthDelaySeq;
+    audio::AudioParameterQueue synthDelayQueue;
+    UiController synthDelayUi(synthDelaySeq);
+    synthDelayUi.setAudioParameterQueue(&synthDelayQueue);
+    synthDelayUi.dispatch({Action::ScreenNext}); // Edit
+    synthDelayUi.dispatch({Action::ScreenNext}); // Sound
+    for (int i = 0; i < 4; ++i) {
+        synthDelayUi.dispatch({Action::NavDown});
+    }
+    expect(synthDelayUi.state().soundField == SoundField::Pitch,
+           "SOUND navigation reaches Synth Pitch field");
+    synthDelayUi.dispatch({Action::NavRight});
+    expect(synthDelayUi.effectiveTrackState(0).synth.pitchHz == 120.0F &&
+               synthDelaySeq.track(0).synth.pitchHz == 110.0F,
+           "live Synth Pitch edit updates effectiveTrackState and queues command");
+    synthDelayUi.dispatch({Action::NavDown});
+    expect(synthDelayUi.state().soundField == SoundField::Morph,
+           "SOUND navigation reaches Synth Morph field");
+    synthDelayUi.dispatch({Action::NavRight});
+    expect(std::abs(synthDelayUi.effectiveTrackState(0).synth.morph - 0.55F) < 1e-4F,
+           "live Synth Morph edit updates effectiveTrackState");
+    for (int i = 0; i < 3; ++i) {
+        synthDelayUi.dispatch({Action::NavDown});
+    }
+    expect(synthDelayUi.state().soundField == SoundField::DelayTime,
+           "SOUND navigation reaches DelayTime field");
+    synthDelayUi.dispatch({Action::NavRight});
+    expect(synthDelayUi.effects().delayMilliseconds == 275,
+           "SOUND > DelayTime adjusts delay time in ms");
+    synthDelayUi.dispatch({Action::NavDown});
+    expect(synthDelayUi.state().soundField == SoundField::DelayFeedback,
+           "SOUND navigation reaches DelayFeedback field");
+    synthDelayUi.dispatch({Action::NavRight});
+    expect(std::abs(synthDelayUi.effects().delayFeedback - 0.30F) < 1e-4F,
+           "SOUND > DelayFeedback adjusts feedback ratio");
+    synthDelayUi.dispatch({Action::NavDown});
+    expect(synthDelayUi.state().soundField == SoundField::DelayMix,
+           "SOUND navigation reaches DelayMix field");
+    synthDelayUi.dispatch({Action::NavRight});
+    expect(std::abs(synthDelayUi.effects().delayMix - 0.25F) < 1e-4F,
+           "SOUND > DelayMix adjusts wet mix ratio");
 }
+
 
 } // namespace
 

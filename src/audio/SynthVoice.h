@@ -40,6 +40,9 @@ public:
     bool configure(std::size_t track,
                    ISynthVoice* voice,
                    const SynthParameters& parameters) noexcept;
+    bool updateParameters(std::size_t track,
+                          const SynthParameters& parameters) noexcept;
+    const SynthParameters& parameters(std::size_t track) const noexcept;
     bool trigger(std::size_t track, float velocity = 1.0F) noexcept;
     bool renderTrack(std::size_t track,
                      float* monoOutput,
@@ -56,6 +59,7 @@ private:
     static bool isValid(const SynthParameters& parameters) noexcept;
 
     std::array<ISynthVoice*, MaxVoices> voices_{};
+    std::array<SynthParameters, MaxVoices> parameters_{};
 };
 
 } // namespace pocket::audio

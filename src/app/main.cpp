@@ -422,36 +422,54 @@ void drawFlatBar(SDL_Renderer* renderer,
         return;
     }
     const auto trackColor =
-        blendColor(palette.background, palette.subdued, 0.45F);
+        blendColor(palette.background, palette.subdued, selected ? 0.50F : 0.35F);
     const auto fillColor = selected ? palette.accent : palette.primary;
 
     if (mode == BarMode::Discrete) {
-        const std::int32_t dotHeight = std::max<std::int32_t>(6, height * 2 / 5);
-        const std::int32_t dotWidth = std::max<std::int32_t>(16, width / 8);
+        const std::int32_t dotHeight = std::max<std::int32_t>(8, height * 9 / 20);
+        const std::int32_t dotWidth = std::max<std::int32_t>(28, width * 22 / 100);
         const std::int32_t barY = y + (height - dotHeight) / 2;
+        const std::int32_t railH = std::max<std::int32_t>(3, dotHeight / 3);
         setColor(renderer, trackColor);
-        fillRect(renderer, x, barY + dotHeight / 2 - 1, width, 2);
-        setColor(renderer, activeState ? fillColor : palette.subdued);
-        const std::int32_t pillX = activeState ? (x + dotWidth + 6) : x;
-        fillRect(renderer, pillX, barY, dotWidth, dotHeight);
+        fillRect(renderer, x, y + (height - railH) / 2, width, railH);
+
+        // Two-segment pill indicator (OFF left, ON right)
+        const std::int32_t offX = x;
+        const std::int32_t onX = x + dotWidth + 8;
+        setColor(renderer, !activeState ? (selected ? palette.accent : palette.primary)
+                                        : blendColor(palette.background, palette.subdued, 0.30F));
+        fillRect(renderer, offX, barY, dotWidth, dotHeight);
+        setColor(renderer, activeState ? fillColor
+                                       : blendColor(palette.background, palette.subdued, 0.30F));
+        fillRect(renderer, onX, barY, dotWidth, dotHeight);
         return;
     }
 
-    const std::int32_t barHeight = std::max<std::int32_t>(6, height / 3);
+    const std::int32_t barHeight =
+        std::max<std::int32_t>(8, selected ? (height * 11 / 20) : (height * 9 / 20));
     const std::int32_t barY = y + (height - barHeight) / 2;
-    const std::int32_t railHeight = std::max<std::int32_t>(2, barHeight / 3);
-    const std::int32_t railY = y + (height - railHeight) / 2;
 
+    // Full-height subtle track bed + fine tick marks at 25%, 50%, 75%
     setColor(renderer, trackColor);
-    fillRect(renderer, x, railY, width, railHeight);
+    fillRect(renderer, x, barY, width, barHeight);
+    const auto tickColor = blendColor(palette.background, palette.subdued, 0.65F);
+    setColor(renderer, tickColor);
+    for (int q = 1; q <= 3; ++q) {
+        const std::int32_t tx = x + (width * q) / 4;
+        fillRect(renderer, tx, barY, 1, barHeight);
+    }
 
     if (mode == BarMode::Unipolar) {
         const float clamped = std::clamp(ratio, 0.0F, 1.0F);
         const std::int32_t fillWidth =
             static_cast<std::int32_t>(std::round(clamped * width));
         if (fillWidth > 0) {
-            setColor(renderer, fillColor);
+            setColor(renderer, activeState ? fillColor : palette.subdued);
             fillRect(renderer, x, barY, fillWidth, barHeight);
+            if (selected && fillWidth >= 3) {
+                setColor(renderer, palette.primary);
+                fillRect(renderer, x + fillWidth - 2, barY - 1, 2, barHeight + 2);
+            }
         }
     } else if (mode == BarMode::Bipolar) {
         const float clamped = std::clamp(ratio, -1.0F, 1.0F);
@@ -483,15 +501,17 @@ void drawHeaderBar(SDL_Renderer* renderer,
         std::clamp(headerHeight / (pocket::app::GlyphHeight * 2), 2, 4);
     const std::int32_t rightScale = std::max(1, titleScale - 1);
     const std::int32_t usableWidth = width - 2 * margin;
-    drawText(renderer, title, margin, y, usableWidth * 3 / 5, headerHeight,
+    setColor(renderer, palette.accent);
+    fillRect(renderer, margin, y + 4, 6, headerHeight - 10);
+    drawText(renderer, title, margin + 14, y, usableWidth * 3 / 5, headerHeight,
              palette.primary, titleScale);
     if (!contextRight.empty()) {
         drawTextRight(renderer, contextRight, margin + usableWidth * 2 / 5, y,
                       usableWidth * 3 / 5, headerHeight, palette.subdued,
                       rightScale);
     }
-    setColor(renderer, blendColor(palette.background, palette.subdued, 0.4F));
-    fillRect(renderer, margin, y + headerHeight - 2, usableWidth, 1);
+    setColor(renderer, blendColor(palette.background, palette.subdued, 0.5F));
+    fillRect(renderer, margin, y + headerHeight - 2, usableWidth, 2);
 }
 
 std::string headerStatusFor(const pocket::Sequencer& sequencer,
@@ -536,10 +556,10 @@ void drawFooter(SDL_Renderer* renderer,
                 std::int32_t height,
                 const std::string& hint =
                     "TAB:SCREEN  Q/E:TRACK  ARROWS:EDIT  SPACE:PLAY  M:MUTE  F1:HELP  P:PROJECT") {
-    const std::int32_t margin = std::max<std::int32_t>(16, width / 16);
+    const std::int32_t margin = std::max<std::int32_t>(16, width / 24);
     const std::int32_t boxHeight = std::max<std::int32_t>(16, height / 28);
-    const std::int32_t footerY = height - boxHeight - std::max<std::int32_t>(8, height / 64);
-    setColor(renderer, blendColor(palette.background, palette.subdued, 0.35F));
+    const std::int32_t footerY = height - boxHeight - std::max<std::int32_t>(6, height / 72);
+    setColor(renderer, blendColor(palette.background, palette.subdued, 0.45F));
     fillRect(renderer, margin, footerY - 4, width - 2 * margin, 1);
     drawText(renderer, hint, margin, footerY, width - 2 * margin, boxHeight,
              palette.subdued, std::clamp(height / 360, 1, 2));
@@ -568,160 +588,566 @@ void renderMainScreen(SDL_Renderer* renderer,
         return;
     }
 
+    const std::int32_t headerAreaH = frame.tracks[0].y - frame.tempoY;
     const std::int32_t trackTextScale =
-        std::clamp(frame.rowPitch / (pocket::app::GlyphHeight * 3), 1, 3);
-    const std::int32_t headerScale = std::max(2, trackTextScale + 1);
+        std::clamp(frame.rowPitch / (pocket::app::GlyphHeight * 4), 1, 2);
+    const std::int32_t headerScale = std::clamp(headerAreaH / 18, 2, 3);
     const std::int32_t usableWidth = width - 2 * frame.tempoX;
+    const std::int32_t patternW = width - frame.tempoX - frame.patternX;
 
+    // Header band: Left = BPM + Transport, Right = Selected track summary + polyrhythm badge
     const auto selectedTrack = ui.effectiveTrackState(ui.state().selectedTrack);
     const std::string trackSummary =
-        "TRACK " + std::to_string(ui.state().selectedTrack + 1) + "  E(" +
-        std::to_string(selectedTrack.effectiveRhythm.fill) + "," +
+        "TRACK " + std::to_string(ui.state().selectedTrack + 1) + " [" +
+        (selectedTrack.instrument == pocket::InstrumentType::Sampler ? "SAMPLER" : "SYNTH") +
+        "]  E(" + std::to_string(selectedTrack.effectiveRhythm.fill) + "," +
         std::to_string(selectedTrack.effectiveRhythm.length) + "," +
         std::to_string(selectedTrack.effectiveRhythm.offset) + ")  VOL " +
-        std::to_string(selectedTrack.volume) +
-        (selectedTrack.muted ? "  MUTE" : "");
+        std::to_string(selectedTrack.volume) + "%" +
+        (selectedTrack.muted ? "  [MUTED]" : "");
     drawTextRight(renderer, trackSummary, frame.patternX, frame.tempoY,
-                  width - frame.tempoX - frame.patternX, frame.rowPitch,
-                  frame.palette.accent, trackTextScale);
-    drawTextRight(renderer,
-                  ui.state().fineAdjust ? "MAIN  [FINE]" : "MAIN",
-                  frame.patternX, frame.tempoY + frame.rowPitch,
-                  width - frame.tempoX - frame.patternX, frame.rowPitch,
-                  frame.palette.subdued, trackTextScale);
+                  patternW, headerAreaH / 2, frame.palette.accent, trackTextScale);
+
+    std::string subHeader = "ELASTIC POLYMETRIC GRID  100% FULL-WIDTH RATIO";
+    if (ui.state().fineAdjust) {
+        subHeader += "  [FINE]";
+    }
+    drawTextRight(renderer, subHeader, frame.patternX,
+                  frame.tempoY + headerAreaH / 2, patternW, headerAreaH / 2,
+                  frame.palette.subdued, 1);
+
     setColor(renderer,
-             blendColor(frame.palette.background, frame.palette.subdued, 0.35F));
-    fillRect(renderer, frame.tempoX,
-             frame.tracks[0].y - std::max<std::int32_t>(4, frame.rowPitch / 8),
-             usableWidth, 1);
+             blendColor(frame.palette.background, frame.palette.subdued, 0.50F));
+    fillRect(renderer, frame.tempoX, frame.tracks[0].y - 4, usableWidth, 2);
+
+    // Subtle quarter-phase vertical reference lines across the elastic grid
+    for (int q = 1; q <= 3; ++q) {
+        const std::int32_t gx = frame.patternX + (patternW * q) / 4;
+        setColor(renderer,
+                 blendColor(frame.palette.background, frame.palette.subdued, 0.22F));
+        fillRect(renderer, gx, frame.tracks[0].y, 1,
+                 frame.tracks[pocket::TrackCount - 1].y + frame.rowPitch -
+                     frame.tracks[0].y);
+    }
+
+    // Pre-draw row backgrounds and Euclidean signature tags on the left label column
+    for (std::size_t t = 0; t < pocket::TrackCount; ++t) {
+        const auto& row = frame.tracks[t];
+        const auto& snapTrack = snapshot.tracks[t];
+        if (row.selected) {
+            setColor(renderer,
+                     blendColor(frame.palette.background, frame.palette.subdued, 0.22F));
+            fillRect(renderer, frame.tempoX - 4, row.y + 1, usableWidth + 8,
+                     row.height - 2);
+            setColor(renderer, frame.palette.accent);
+            fillRect(renderer, frame.tempoX - 8, row.y + 3, 4, row.height - 6);
+        }
+        // Sub-label showing E(fill,len,ofs) under the track title
+        const std::string euclidTag =
+            "E(" + std::to_string(snapTrack.rhythm.fill) + "," +
+            std::to_string(snapTrack.rhythm.length) + "," +
+            std::to_string(snapTrack.rhythm.offset) + ")";
+        const auto subColor =
+            row.selected ? frame.palette.accent : frame.palette.subdued;
+        drawText(renderer, euclidTag, frame.tempoX,
+                 row.y + row.height / 2 + 1, frame.patternX - frame.tempoX - 6,
+                 row.height / 2 - 2, subColor, 1);
+    }
 
     std::array<std::size_t, pocket::TrackCount> stepIndex{};
     for (std::size_t index = 0; index < drawList.commandCount; ++index) {
         const auto& command = drawList.commands[index];
         if (command.type == pocket::ui::MainDrawCommandType::Text) {
             if (command.textRole == pocket::ui::MainTextRole::Tempo) {
-                drawText(renderer, mainTextFor(command), command.x, command.y,
-                         command.width * 2, command.height, command.color,
-                         headerScale);
+                drawText(renderer, mainTextFor(command), command.x,
+                         frame.tempoY, command.width * 2, headerAreaH / 2,
+                         frame.palette.primary, headerScale);
             } else if (command.textRole == pocket::ui::MainTextRole::Transport) {
                 const auto transportColor =
                     command.playing ? frame.palette.accent : frame.palette.subdued;
-                drawText(renderer, mainTextFor(command), command.x, command.y,
-                         command.width * 2, command.height, transportColor,
-                         trackTextScale);
+                const std::string trText =
+                    std::string(command.playing ? "> PLAY  STEP " : "|| STOP  STEP ") +
+                    std::to_string(command.masterTickPosition);
+                drawText(renderer, trText, command.x,
+                         frame.tempoY + headerAreaH / 2, command.width * 3,
+                         headerAreaH / 2, transportColor, trackTextScale);
             } else {
-                if (command.selected) {
-                    const std::int32_t markerW =
-                        std::max<std::int32_t>(3, frame.tempoX / 12);
-                    const std::int32_t markerH =
-                        std::max<std::int32_t>(8, command.height * 3 / 5);
-                    setColor(renderer, frame.palette.accent);
-                    fillRect(renderer,
-                             std::max<std::int32_t>(4, command.x - markerW - 6),
-                             command.y + (command.height - markerH) / 2,
-                             markerW, markerH);
-                }
                 const auto labelColor =
                     command.selected
                         ? frame.palette.accent
                         : (command.muted ? frame.palette.subdued
                                          : frame.palette.primary);
-                drawText(renderer, mainTextFor(command), command.x, command.y,
-                         command.width, command.height, labelColor,
-                         trackTextScale);
+                drawText(renderer, mainTextFor(command), command.x,
+                         command.y + 2, command.width - 6, command.height / 2,
+                         labelColor, trackTextScale);
             }
             continue;
         }
         if (command.type != pocket::ui::MainDrawCommandType::StepBar) {
             continue;
         }
+        const auto trackIdx =
+            static_cast<std::size_t>( std::max<int>(0, command.trackNumber - 1));
+        const std::size_t curStep = stepIndex[trackIdx]++;
+        float light = 0.0F;
+        if (engine != nullptr && trackIdx < pocket::TrackCount) {
+            light = engine->luminance(trackIdx, curStep);
+        }
+
         auto color = command.color;
         if (command.muted) {
             color = command.active
                         ? blendColor(frame.palette.background,
-                                     frame.palette.subdued, 0.65F)
+                                     frame.palette.subdued, 0.55F)
                         : blendColor(frame.palette.background,
-                                     frame.palette.subdued, 0.30F);
+                                     frame.palette.subdued, 0.22F);
         } else if (command.next) {
             color = frame.palette.accent;
-        } else if (command.selected && command.active) {
-            color = blendColor(frame.palette.primary, frame.palette.accent,
-                               0.35F);
-        } else if (!command.active) {
+        } else if (command.active) {
+            color = command.selected
+                        ? blendColor(frame.palette.primary, frame.palette.accent,
+                                     0.30F)
+                        : frame.palette.primary;
+        } else {
             color = blendColor(frame.palette.background, frame.palette.subdued,
-                               command.selected ? 0.65F : 0.45F);
+                               command.selected ? 0.52F : 0.35F);
         }
-        if (engine != nullptr && command.trackNumber >= 1 &&
-            command.trackNumber <= pocket::TrackCount) {
-            const auto track = static_cast<std::size_t>(command.trackNumber - 1);
-            const float light = engine->luminance(track, stepIndex[track]++);
-            if (light > 0.0F && !command.muted) {
-                color = blendColor(color, frame.palette.accent, light);
-            }
+        if (light > 0.0F && !command.muted) {
+            color = blendColor(color, frame.palette.accent, light);
         }
+
+        // Draw elastic step block
         setColor(renderer, color);
         const std::int32_t extraH =
-            (command.selected && command.active) ? 2 : 0;
-        fillRect(renderer, command.x, command.y - extraH / 2, command.width,
-                 command.height + extraH);
+            (command.selected && command.active) ? 4 : 0;
+        const std::int32_t bx = command.x;
+        const std::int32_t by = command.y - extraH / 2;
+        const std::int32_t bw = command.width;
+        const std::int32_t bh = command.height + extraH;
+        fillRect(renderer, bx, by, bw, bh);
+
+        // Top accent cap on active steps for crisp architectural hierarchy
+        if (command.active && !command.muted && bh >= 10) {
+            setColor(renderer, command.next || command.selected
+                                   ? frame.palette.accent
+                                   : blendColor(frame.palette.primary,
+                                                frame.palette.accent, 0.45F));
+            fillRect(renderer, bx, by, bw, 3);
+        }
+
+        // Playhead indicator frame/pip on current step
+        if (command.next) {
+            setColor(renderer, frame.palette.primary);
+            fillRect(renderer, bx, by - 3, bw, 2);
+            fillRect(renderer, bx, by + bh + 1, bw, 2);
+        }
     }
     drawFooter(renderer, frame.palette, width, height);
 }
 
-void drawTrackPatternPreview(SDL_Renderer* renderer,
-                             const pocket::ui::ThemePalette& palette,
-                             const pocket::TrackState& track,
-                             bool playing,
-                             std::int32_t x,
-                             std::int32_t y,
-                             std::int32_t width,
-                             std::int32_t height) {
+// Elastic Full-Width Euclidean Step Explorer + 8-track Polymetric Alignment Matrix for EDIT screen
+void drawEditEuclideanExplorer(SDL_Renderer* renderer,
+                               const pocket::ui::ThemePalette& palette,
+                               const pocket::Sequencer& sequencer,
+                               const pocket::ui::UiController& ui,
+                               std::int32_t x,
+                               std::int32_t y,
+                               std::int32_t width,
+                               std::int32_t height) {
+    const std::size_t selectedIdx =
+        std::min(ui.state().selectedTrack, pocket::TrackCount - 1);
+    const auto selectedTrack = ui.effectiveTrackState(selectedIdx);
     const pocket::EuclideanConfig rhythm{
-        track.effectiveRhythm.length,
-        track.effectiveRhythm.fill,
-        track.effectiveRhythm.offset,
+        selectedTrack.effectiveRhythm.length,
+        selectedTrack.effectiveRhythm.fill,
+        selectedTrack.effectiveRhythm.offset,
     };
     if (!pocket::EuclideanGenerator::isValid(rhythm) || width <= 0 ||
         height <= 0) {
         return;
     }
 
-    const std::int32_t labelBoxWidth = std::max<std::int32_t>(110, width / 6);
-    const std::int32_t scale = std::clamp(height / 18, 1, 2);
-    const std::string summary = "E(" + std::to_string(rhythm.fill) + "," +
-                                std::to_string(rhythm.length) + "," +
-                                std::to_string(rhythm.offset) + ")";
-    drawText(renderer, summary, x, y, labelBoxWidth, height, palette.accent,
-             scale);
+    // Panel background
+    setColor(renderer, blendColor(palette.background, palette.subdued, 0.18F));
+    fillRect(renderer, x, y, width, height);
 
-    const std::int32_t stepsX = x + labelBoxWidth + 12;
-    const std::int32_t availableWidth = width - (stepsX - x);
-    const std::int32_t stepPitch =
-        availableWidth /
-        static_cast<std::int32_t>(pocket::EuclideanGenerator::MaxLength);
-    if (stepPitch <= 0) {
+    const std::int32_t pad = 10;
+    const std::int32_t innerX = x + pad;
+    const std::int32_t innerW = width - 2 * pad;
+
+    // Top row: Summary banner
+    const std::int32_t bannerH = 20;
+    const float density =
+        rhythm.length > 0
+            ? (100.0F * static_cast<float>(rhythm.fill) /
+               static_cast<float>(rhythm.length))
+            : 0.0F;
+    const std::string bannerLeft =
+        "ELASTIC STEP EXPLORER  E(" + std::to_string(rhythm.fill) + "," +
+        std::to_string(rhythm.length) + "," + std::to_string(rhythm.offset) +
+        ")  DENSITY " + formatNumber("%.0f%%", density);
+    drawText(renderer, bannerLeft, innerX, y + 4, innerW * 2 / 3, bannerH,
+             palette.accent, 2);
+    const std::string bannerRight =
+        "STEP " + std::to_string(selectedTrack.position + 1) + "/" +
+        std::to_string(rhythm.length);
+    drawTextRight(renderer, bannerRight, innerX + innerW * 2 / 3, y + 4,
+                  innerW / 3, bannerH, palette.primary, 2);
+
+    // Hero Elastic Step Bar for selected track
+    const std::int32_t heroY = y + bannerH + 8;
+    const std::int32_t heroH = std::max<std::int32_t>(38, height * 36 / 100);
+    const auto length = static_cast<std::int32_t>(rhythm.length);
+    for (std::uint8_t step = 0; step < rhythm.length; ++step) {
+        const auto stepIdx = static_cast<std::int32_t>(step);
+        const auto cellX0 = innerX + (stepIdx * innerW) / length;
+        const auto cellX1 = innerX + ((stepIdx + 1) * innerW) / length;
+        const auto cellW = std::max<std::int32_t>(1, cellX1 - cellX0);
+        const auto gap = (step + 1 < rhythm.length)
+                             ? std::clamp<std::int32_t>(cellW / 12, 2, 5)
+                             : 0;
+        const auto barW = std::max<std::int32_t>(1, cellW - gap);
+
+        const bool active = pocket::EuclideanGenerator::isActive(rhythm, step);
+        const bool isPlayhead =
+            sequencer.isPlaying() && (selectedTrack.position == step);
+        const std::int32_t barH = active ? heroH : (heroH * 9 / 20);
+        const std::int32_t barY = heroY + (heroH - barH) / 2;
+
+        const auto color =
+            isPlayhead
+                ? palette.accent
+                : (active ? blendColor(palette.primary, palette.accent, 0.25F)
+                          : blendColor(palette.background, palette.subdued,
+                                       0.48F));
+        setColor(renderer, color);
+        fillRect(renderer, cellX0, barY, barW, barH);
+
+        if (active && barH >= 14) {
+            setColor(renderer, palette.accent);
+            fillRect(renderer, cellX0, barY, barW, 3);
+        }
+        // Step index number inside wide cells or on active beats
+        if (barW >= 18) {
+            const auto numColor =
+                active ? palette.background : palette.subdued;
+            drawText(renderer, std::to_string(step + 1), cellX0 + 2,
+                     barY + barH - 11, barW - 4, 9, numColor, 1);
+        }
+    }
+
+    // Bottom section: 8-Track Polymetric Phase Comparison Strip
+    const std::int32_t matrixTop = heroY + heroH + 8;
+    const std::int32_t matrixH = std::max<std::int32_t>(24, y + height - matrixTop - 6);
+    const std::int32_t stripPitch =
+        std::max<std::int32_t>(3, matrixH / static_cast<std::int32_t>(pocket::TrackCount));
+    const std::int32_t tagW = 36;
+    const std::int32_t stripX = innerX + tagW;
+    const std::int32_t stripW = innerW - tagW;
+
+    for (std::size_t t = 0; t < pocket::TrackCount; ++t) {
+        const auto tr = ui.effectiveTrackState(t);
+        const pocket::EuclideanConfig trRhythm{
+            tr.effectiveRhythm.length,
+            tr.effectiveRhythm.fill,
+            tr.effectiveRhythm.offset,
+        };
+        if (!pocket::EuclideanGenerator::isValid(trRhythm)) {
+            continue;
+        }
+        const std::int32_t sy =
+            matrixTop + static_cast<std::int32_t>(t) * stripPitch;
+        const bool isSel = (t == selectedIdx);
+        drawText(renderer, "T" + std::to_string(t + 1), innerX, sy, tagW - 4,
+                 stripPitch, isSel ? palette.accent : palette.subdued, 1);
+
+        const auto trLen = static_cast<std::int32_t>(trRhythm.length);
+        const std::int32_t sh = std::max<std::int32_t>(2, stripPitch - 2);
+        for (std::uint8_t s = 0; s < trRhythm.length; ++s) {
+            const auto sx0 = stripX + (static_cast<std::int32_t>(s) * stripW) / trLen;
+            const auto sx1 =
+                stripX + (static_cast<std::int32_t>(s + 1) * stripW) / trLen;
+            const auto sw = std::max<std::int32_t>(1, sx1 - sx0 - 1);
+            const bool sActive =
+                pocket::EuclideanGenerator::isActive(trRhythm, s);
+            const auto sColor =
+                sActive ? (isSel ? palette.accent : palette.primary)
+                        : blendColor(palette.background, palette.subdued, 0.28F);
+            setColor(renderer, sColor);
+            fillRect(renderer, sx0, sy + 1, sw, sh);
+        }
+    }
+}
+
+// Graphical Sound Visualizer Header: AD Envelope + Filter Passband + Synth Wave + Delay Echoes
+void drawSoundVisualizer(SDL_Renderer* renderer,
+                         const pocket::ui::ThemePalette& palette,
+                         const pocket::TrackState& track,
+                         const pocket::project::ProjectEffectState& effects,
+                         std::int32_t x,
+                         std::int32_t y,
+                         std::int32_t width,
+                         std::int32_t height) {
+    if (width <= 0 || height <= 0) {
         return;
     }
-    const std::int32_t barWidth = std::max<std::int32_t>(2, stepPitch * 3 / 5);
-    const std::int32_t activeHeight = std::max<std::int32_t>(8, height * 3 / 5);
-    const std::int32_t inactiveHeight =
-        std::max<std::int32_t>(4, activeHeight * 3 / 5);
+    const std::int32_t gap = 10;
+    const std::int32_t cardW = (width - 2 * gap) / 3;
+    const std::int32_t cardH = height;
 
-    for (std::uint8_t step = 0; step < rhythm.length; ++step) {
-        const bool active = pocket::EuclideanGenerator::isActive(rhythm, step);
-        const bool next = playing && (track.position == step);
-        const std::int32_t stepX =
-            stepsX + static_cast<std::int32_t>(step) * stepPitch +
-            (stepPitch - barWidth) / 2;
-        const std::int32_t barH = active ? activeHeight : inactiveHeight;
-        const std::int32_t stepY = y + (height - barH) / 2;
-        const auto color =
-            next ? palette.accent
-                 : (active ? palette.primary
-                           : blendColor(palette.background, palette.subdued,
-                                        0.55F));
-        setColor(renderer, color);
-        fillRect(renderer, stepX, stepY, barWidth, barH);
+    // Card 1: AD Envelope + Low-Pass Filter Passband
+    {
+        const std::int32_t cx = x;
+        setColor(renderer, blendColor(palette.background, palette.subdued, 0.18F));
+        fillRect(renderer, cx, y, cardW, cardH);
+
+        drawText(renderer, "AD ENV & LPF", cx + 8, y + 4, cardW - 16, 14,
+                 palette.accent, 1);
+
+        const std::int32_t plotX = cx + 8;
+        const std::int32_t plotY = y + 20;
+        const std::int32_t plotW = cardW - 16;
+        const std::int32_t plotH = cardH - 26;
+
+        // Filter cutoff passband shading
+        const float cutoffNorm = std::clamp(
+            (std::log10(std::max(100.0F, track.filter.cutoffHz)) - 2.0F) /
+                2.301F,
+            0.05F, 1.0F);
+        const std::int32_t passW =
+            static_cast<std::int32_t>(std::round(cutoffNorm * plotW));
+        setColor(renderer,
+                 blendColor(palette.background,
+                            track.filter.enabled ? palette.accent : palette.subdued,
+                            track.filter.enabled ? 0.22F : 0.10F));
+        fillRect(renderer, plotX, plotY, passW, plotH);
+
+        // Draw AD envelope vertical slices
+        const float attNorm = std::clamp(
+            track.envelope.attackSeconds /
+                pocket::AdEnvelopeSettings::MaxAttackSeconds,
+            0.04F, 0.85F);
+        const float decNorm = std::clamp(
+            track.envelope.decaySeconds /
+                pocket::AdEnvelopeSettings::MaxDecaySeconds,
+            0.08F, 1.0F);
+        const std::int32_t peakX =
+            std::max<std::int32_t>(2, static_cast<std::int32_t>(attNorm * plotW * 0.45F));
+        const std::int32_t endX = std::min<std::int32_t>(
+            plotW,
+            peakX + std::max<std::int32_t>(
+                        4, static_cast<std::int32_t>(decNorm * plotW * 0.55F)));
+
+        for (std::int32_t col = 0; col < plotW; col += 2) {
+            float env = 0.0F;
+            if (col <= peakX) {
+                env = static_cast<float>(col) / static_cast<float>(peakX);
+            } else if (col <= endX) {
+                const float t = static_cast<float>(col - peakX) /
+                                static_cast<float>(std::max(1, endX - peakX));
+                env = std::pow(1.0F - t, 1.8F);
+            }
+            const std::int32_t bh =
+                std::max<std::int32_t>(1, static_cast<std::int32_t>(env * plotH));
+            setColor(renderer, col <= peakX ? palette.accent : palette.primary);
+            fillRect(renderer, plotX + col, plotY + plotH - bh, 2, bh);
+        }
+    }
+
+    // Card 2: Synth Oscillator Waveform Preview (Morph / Timbre / Color)
+    {
+        const std::int32_t cx = x + cardW + gap;
+        setColor(renderer, blendColor(palette.background, palette.subdued, 0.18F));
+        fillRect(renderer, cx, y, cardW, cardH);
+
+        const std::string title =
+            "VA SYNTH  " + formatNumber("%.0f HZ", track.synth.pitchHz);
+        drawText(renderer, title, cx + 8, y + 4, cardW - 16, 14,
+                 palette.accent, 1);
+
+        const std::int32_t plotX = cx + 8;
+        const std::int32_t plotY = y + 20;
+        const std::int32_t plotW = cardW - 16;
+        const std::int32_t plotH = cardH - 26;
+        const std::int32_t midY = plotY + plotH / 2;
+
+        setColor(renderer, blendColor(palette.background, palette.subdued, 0.4F));
+        fillRect(renderer, plotX, midY, plotW, 1);
+
+        constexpr float TwoPi = 6.2831853F;
+        for (std::int32_t col = 0; col < plotW; col += 2) {
+            const float phase =
+                static_cast<float>(col) / static_cast<float>(plotW) * 2.0F;
+            const float p = phase - std::floor(phase);
+            const float sine = std::sin(p * TwoPi);
+            const float saw = 2.0F * p - 1.0F;
+            const float pulse =
+                p < (0.15F + 0.70F * track.synth.timbre) ? 1.0F : -1.0F;
+            float sample =
+                (1.0F - track.synth.morph) * sine + track.synth.morph * saw;
+            sample = 0.65F * sample + 0.35F * pulse * track.synth.color;
+            sample = std::clamp(sample, -1.0F, 1.0F);
+
+            const std::int32_t sy =
+                midY - static_cast<std::int32_t>(sample * (plotH * 0.42F));
+            const std::int32_t top = std::min(midY, sy);
+            const std::int32_t h = std::max<std::int32_t>(2, std::abs(sy - midY));
+            setColor(renderer, palette.primary);
+            fillRect(renderer, plotX + col, top, 2, h);
+        }
+    }
+
+    // Card 3: Stereo Delay Echo Tap Visualizer
+    {
+        const std::int32_t cx = x + (cardW + gap) * 2;
+        const std::int32_t cw = width - (cardW + gap) * 2;
+        setColor(renderer, blendColor(palette.background, palette.subdued, 0.18F));
+        fillRect(renderer, cx, y, cw, cardH);
+
+        const std::string title =
+            "DELAY  " + std::to_string(effects.delayMilliseconds) + " MS";
+        drawText(renderer, title, cx + 8, y + 4, cw - 16, 14, palette.accent, 1);
+
+        const std::int32_t plotX = cx + 8;
+        const std::int32_t plotY = y + 20;
+        const std::int32_t plotW = cw - 16;
+        const std::int32_t plotH = cardH - 26;
+
+        const int tapCount = 8;
+        const float timeSpacing = std::clamp(
+            static_cast<float>(effects.delayMilliseconds) / 800.0F, 0.15F, 1.0F);
+        const std::int32_t tapStep =
+            std::max<std::int32_t>(8, static_cast<std::int32_t>((plotW / tapCount) * timeSpacing));
+        const std::int32_t barW = std::max<std::int32_t>(5, tapStep - 4);
+
+        float amp = std::max(0.15F, effects.delayMix);
+        for (int tap = 0; tap < tapCount; ++tap) {
+            const std::int32_t tx = plotX + tap * tapStep;
+            if (tx + barW > plotX + plotW) {
+                break;
+            }
+            const std::int32_t th =
+                std::max<std::int32_t>(3, static_cast<std::int32_t>(amp * plotH));
+            setColor(renderer,
+                     tap == 0 ? palette.accent
+                              : blendColor(palette.subdued, palette.primary, amp));
+            fillRect(renderer, tx, plotY + plotH - th, barW, th);
+            amp *= std::clamp(effects.delayFeedback, 0.05F, 0.90F);
+        }
+    }
+}
+
+// Graphical LFO Waveform + Jitter Scatter Visualizer Header for MODULATION screen
+void drawModulationVisualizer(SDL_Renderer* renderer,
+                              const pocket::ui::ThemePalette& palette,
+                              const pocket::TrackState& track,
+                              std::int32_t x,
+                              std::int32_t y,
+                              std::int32_t width,
+                              std::int32_t height) {
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    const auto& lfo = track.lfos[0];
+    const auto& jitter = track.jitter;
+    const std::int32_t gap = 10;
+    const std::int32_t leftW = width * 62 / 100;
+    const std::int32_t rightW = width - leftW - gap;
+
+    // Left Card: LFO Waveform Cycle & Depth
+    {
+        setColor(renderer, blendColor(palette.background, palette.subdued, 0.18F));
+        fillRect(renderer, x, y, leftW, height);
+
+        const std::string lfoHeader =
+            std::string("LFO 1 [") + (lfo.enabled ? "ACTIVE" : "BYPASS") +
+            "]  DEPTH " + formatNumber("%+.0f", static_cast<double>(lfo.amount));
+        drawText(renderer, lfoHeader, x + 8, y + 4, leftW - 16, 14,
+                 lfo.enabled ? palette.accent : palette.subdued, 1);
+
+        const std::int32_t plotX = x + 8;
+        const std::int32_t plotY = y + 20;
+        const std::int32_t plotW = leftW - 16;
+        const std::int32_t plotH = height - 26;
+        const std::int32_t midY = plotY + plotH / 2;
+
+        setColor(renderer, blendColor(palette.background, palette.subdued, 0.45F));
+        fillRect(renderer, plotX, midY, plotW, 1);
+
+        const float depthScale =
+            std::clamp(std::abs(static_cast<float>(lfo.amount)) / 31.0F, 0.15F, 1.0F) *
+            (lfo.amount < 0 ? -1.0F : 1.0F);
+        constexpr float TwoPi = 6.2831853F;
+        for (std::int32_t col = 0; col < plotW; col += 3) {
+            const float p =
+                static_cast<float>(col) / static_cast<float>(plotW);
+            float w = 0.0F;
+            switch (lfo.waveform) {
+            case pocket::LfoWaveform::Sine:
+                w = std::sin(p * TwoPi);
+                break;
+            case pocket::LfoWaveform::Triangle:
+                w = 1.0F - 4.0F * std::abs(std::round(p - 0.25F) - (p - 0.25F));
+                break;
+            case pocket::LfoWaveform::Square:
+                w = p < 0.5F ? 1.0F : -1.0F;
+                break;
+            case pocket::LfoWaveform::SawUp:
+                w = 2.0F * p - 1.0F;
+                break;
+            case pocket::LfoWaveform::SawDown:
+                w = 1.0F - 2.0F * p;
+                break;
+            case pocket::LfoWaveform::SampleAndHold: {
+                const int bucket = static_cast<int>(p * 8.0F);
+                const float table[8] = {0.8F, -0.5F, 0.3F, -0.9F,
+                                        0.6F, -0.2F, 0.9F, -0.7F};
+                w = table[bucket & 7];
+                break;
+            }
+            }
+            w *= depthScale;
+            const std::int32_t wy =
+                midY - static_cast<std::int32_t>(w * (plotH * 0.42F));
+            const std::int32_t top = std::min(midY, wy);
+            const std::int32_t bh = std::max<std::int32_t>(2, std::abs(wy - midY));
+            setColor(renderer,
+                     lfo.enabled ? palette.accent : palette.subdued);
+            fillRect(renderer, plotX + col, top, 2, bh);
+        }
+    }
+
+    // Right Card: Non-destructive Jitter Probability & Micro-shift Bars
+    {
+        const std::int32_t rx = x + leftW + gap;
+        setColor(renderer, blendColor(palette.background, palette.subdued, 0.18F));
+        fillRect(renderer, rx, y, rightW, height);
+
+        const std::string jitHeader =
+            std::string("JITTER [") + (jitter.enabled ? "ON" : "OFF") + "] " +
+            std::to_string(jitter.intensity) + "%";
+        drawText(renderer, jitHeader, rx + 8, y + 4, rightW - 16, 14,
+                 jitter.enabled ? palette.accent : palette.subdued, 1);
+
+        const std::int32_t plotX = rx + 8;
+        const std::int32_t plotY = y + 20;
+        const std::int32_t plotW = rightW - 16;
+        const std::int32_t plotH = height - 26;
+        const int bars = 12;
+        const std::int32_t stepW = std::max<std::int32_t>(4, plotW / bars);
+        const float strength =
+            std::max(0.18F, static_cast<float>(jitter.intensity) / 100.0F);
+        std::uint32_t hash = jitter.randomSeed ^ 0x9E3779B9U;
+        for (int b = 0; b < bars; ++b) {
+            hash = hash * 1664525U + 1013904223U;
+            const float r = static_cast<float>((hash >> 16) & 0xFFU) / 255.0F;
+            const std::int32_t bh = std::max<std::int32_t>(
+                3, static_cast<std::int32_t>(r * strength * plotH));
+            setColor(renderer,
+                     jitter.enabled ? palette.primary : palette.subdued);
+            fillRect(renderer, plotX + b * stepW, plotY + plotH - bh,
+                      std::max<std::int32_t>(2, stepW - 3), bh);
+        }
     }
 }
 
@@ -733,44 +1159,36 @@ void renderRows(SDL_Renderer* renderer,
                 std::size_t selectedRow,
                 std::int32_t width,
                 std::int32_t height,
-                const pocket::TrackState* patternPreviewTrack = nullptr,
-                bool playing = false) {
-    const std::int32_t margin = std::max<std::int32_t>(16, width / 16);
-    const std::int32_t headerHeight = std::max<std::int32_t>(36, height / 12);
-    const std::int32_t footerReserve = std::max<std::int32_t>(36, height / 14);
-    const std::int32_t topY = std::max<std::int32_t>(12, height / 36);
+                std::int32_t topBannerReserve = 0) {
+    const std::int32_t margin = std::max<std::int32_t>(16, width / 24);
+    const std::int32_t headerHeight = std::max<std::int32_t>(36, height / 13);
+    const std::int32_t footerReserve = std::max<std::int32_t>(32, height / 16);
+    const std::int32_t topY = std::max<std::int32_t>(10, height / 42);
 
     drawHeaderBar(renderer, palette, title, headerRight, margin, topY, width,
                   headerHeight);
 
-    std::int32_t contentTop = topY + headerHeight + std::max<std::int32_t>(8, height / 64);
-    if (patternPreviewTrack != nullptr) {
-        const std::int32_t previewHeight = std::max<std::int32_t>(32, height / 14);
-        drawTrackPatternPreview(renderer, palette, *patternPreviewTrack, playing,
-                                margin, contentTop, width - 2 * margin,
-                                previewHeight);
-        contentTop += previewHeight + std::max<std::int32_t>(8, height / 64);
-        setColor(renderer, blendColor(palette.background, palette.subdued, 0.3F));
-        fillRect(renderer, margin, contentTop - 4, width - 2 * margin, 1);
-    }
+    std::int32_t contentTop =
+        topY + headerHeight + std::max<std::int32_t>(6, height / 72) +
+        topBannerReserve;
 
     const std::int32_t contentBottom = height - footerReserve;
     const std::int32_t availableHeight =
         std::max<std::int32_t>(24, contentBottom - contentTop);
     const std::size_t rowCount = std::max<std::size_t>(1, rows.size());
     const std::int32_t pitch = std::clamp<std::int32_t>(
-        availableHeight / static_cast<std::int32_t>(rowCount), 20,
-        std::max<std::int32_t>(28, height / 10));
+        availableHeight / static_cast<std::int32_t>(rowCount), 18,
+        std::max<std::int32_t>(26, height / 11));
 
     const std::int32_t usableWidth = width - 2 * margin;
-    const std::int32_t labelWidth = usableWidth * 32 / 100;
-    const std::int32_t barX = margin + labelWidth + usableWidth * 3 / 100;
-    const std::int32_t barWidth = usableWidth * 38 / 100;
-    const std::int32_t valueX = barX + barWidth + usableWidth * 3 / 100;
+    const std::int32_t labelWidth = usableWidth * 24 / 100;
+    const std::int32_t barX = margin + labelWidth + usableWidth * 2 / 100;
+    const std::int32_t barWidth = usableWidth * 54 / 100;
+    const std::int32_t valueX = barX + barWidth + usableWidth * 2 / 100;
     const std::int32_t valueWidth = margin + usableWidth - valueX;
 
     const std::int32_t rowScale =
-        std::clamp<std::int32_t>(pitch / (pocket::app::GlyphHeight * 2), 1, 3);
+        std::clamp<std::int32_t>(pitch / (pocket::app::GlyphHeight * 2), 1, 2);
 
     std::int32_t y = contentTop;
     for (std::size_t index = 0; index < rows.size(); ++index) {
@@ -780,11 +1198,11 @@ void renderRows(SDL_Renderer* renderer,
         const auto& valueColor = selected ? palette.accent : palette.primary;
 
         if (selected) {
-            const std::int32_t markerW = std::max<std::int32_t>(3, width / 256);
-            const std::int32_t markerH = std::max<std::int32_t>(8, pitch * 3 / 5);
+            setColor(renderer,
+                     blendColor(palette.background, palette.subdued, 0.20F));
+            fillRect(renderer, margin - 4, y + 1, usableWidth + 8, pitch - 2);
             setColor(renderer, palette.accent);
-            fillRect(renderer, std::max<std::int32_t>(4, margin - markerW - 6),
-                     y + (pitch - markerH) / 2, markerW, markerH);
+            fillRect(renderer, margin - 8, y + 2, 4, pitch - 4);
         }
 
         drawText(renderer, row.label, margin, y, labelWidth, pitch, labelColor,
@@ -813,10 +1231,10 @@ void renderMixerScreen(SDL_Renderer* renderer,
                        const pocket::app::DesktopAudioEngine* engine,
                        std::int32_t width,
                        std::int32_t height) {
-    const std::int32_t margin = std::max<std::int32_t>(16, width / 16);
-    const std::int32_t headerHeight = std::max<std::int32_t>(36, height / 12);
-    const std::int32_t footerReserve = std::max<std::int32_t>(36, height / 14);
-    const std::int32_t topY = std::max<std::int32_t>(12, height / 36);
+    const std::int32_t margin = std::max<std::int32_t>(16, width / 24);
+    const std::int32_t headerHeight = std::max<std::int32_t>(36, height / 13);
+    const std::int32_t footerReserve = std::max<std::int32_t>(32, height / 16);
+    const std::int32_t topY = std::max<std::int32_t>(10, height / 42);
 
     const std::size_t selected =
         std::min(ui.state().selectedTrack, pocket::TrackCount - 1);
@@ -825,10 +1243,10 @@ void renderMixerScreen(SDL_Renderer* renderer,
     const std::size_t fieldCount = sizeof(fieldNames) / sizeof(fieldNames[0]);
 
     const std::string rightContext =
-        std::string("FIELD: ") + fieldNames[std::min(field, fieldCount - 1)] +
-        "  (ENTER:NEXT FIELD)  " + headerStatusFor(sequencer, ui);
-    drawHeaderBar(renderer, palette, "MIXER", rightContext, margin, topY, width,
-                  headerHeight);
+        std::string("FOCUS: ") + fieldNames[std::min(field, fieldCount - 1)] +
+        "  (ENTER:NEXT)  " + headerStatusFor(sequencer, ui);
+    drawHeaderBar(renderer, palette, "MIXER CONSOLE", rightContext, margin, topY,
+                  width, headerHeight);
 
     const std::int32_t contentTop =
         topY + headerHeight + std::max<std::int32_t>(8, height / 64);
@@ -839,12 +1257,12 @@ void renderMixerScreen(SDL_Renderer* renderer,
         std::clamp<std::int32_t>(pitch / (pocket::app::GlyphHeight * 2), 1, 2);
 
     const std::int32_t usableWidth = width - 2 * margin;
-    const std::int32_t labelWidth = usableWidth * 10 / 100;
+    const std::int32_t labelWidth = usableWidth * 13 / 100;
     const std::int32_t volBarX = margin + labelWidth;
-    const std::int32_t volBarW = usableWidth * 32 / 100;
-    const std::int32_t panBarX = volBarX + volBarW + usableWidth * 3 / 100;
-    const std::int32_t panBarW = usableWidth * 18 / 100;
-    const std::int32_t textX = panBarX + panBarW + usableWidth * 3 / 100;
+    const std::int32_t volBarW = usableWidth * 44 / 100;
+    const std::int32_t panBarX = volBarX + volBarW + usableWidth * 2 / 100;
+    const std::int32_t panBarW = usableWidth * 20 / 100;
+    const std::int32_t textX = panBarX + panBarW + usableWidth * 2 / 100;
     const std::int32_t textWidth = margin + usableWidth - textX;
 
     const bool masterSelected = field == fieldCount - 1;
@@ -858,15 +1276,18 @@ void renderMixerScreen(SDL_Renderer* renderer,
                        : (state.muted ? palette.subdued : palette.primary);
 
         if (isSelected) {
-            const std::int32_t markerW = std::max<std::int32_t>(3, width / 256);
-            const std::int32_t markerH = std::max<std::int32_t>(8, pitch * 3 / 5);
+            setColor(renderer,
+                     blendColor(palette.background, palette.subdued, 0.22F));
+            fillRect(renderer, margin - 4, y + 1, usableWidth + 8, pitch - 2);
             setColor(renderer, palette.accent);
-            fillRect(renderer, std::max<std::int32_t>(4, margin - markerW - 6),
-                     y + (pitch - markerH) / 2, markerW, markerH);
+            fillRect(renderer, margin - 8, y + 3, 4, pitch - 6);
         }
 
-        drawText(renderer, "T" + std::to_string(track + 1), margin, y,
-                 labelWidth, pitch, color, rowScale);
+        const std::string trLabel =
+            "T" + std::to_string(track + 1) + " " +
+            (state.instrument == pocket::InstrumentType::Sampler ? "SMP" : "SYN");
+        drawText(renderer, trLabel, margin, y, labelWidth, pitch, color,
+                 rowScale);
 
         const float volRatio =
             state.muted ? 0.0F : static_cast<float>(state.volume) / 100.0F;
@@ -878,7 +1299,7 @@ void renderMixerScreen(SDL_Renderer* renderer,
             if (peak > 0.0F) {
                 setColor(renderer, palette.accent);
                 fillRect(renderer, volBarX, y + pitch * 3 / 4,
-                         static_cast<std::int32_t>(peak * volBarW), 2);
+                         static_cast<std::int32_t>(peak * volBarW), 3);
             }
         }
 
@@ -886,48 +1307,49 @@ void renderMixerScreen(SDL_Renderer* renderer,
                     BarMode::Bipolar, state.pan,
                     isSelected && field == 1, !state.muted);
 
-        std::string text = "VOL " + std::to_string(state.volume) + "  PAN " +
+        std::string text = std::to_string(state.volume) + "%  " +
                            formatNumber("%+.2f", state.pan);
         if (state.muted) {
-            text += "  MUTE";
+            text = "MUTED";
         }
         drawTextRight(renderer, text, textX, y, textWidth, pitch, color,
                       rowScale);
         y += pitch;
     }
 
-    setColor(renderer, blendColor(palette.background, palette.subdued, 0.35F));
-    fillRect(renderer, margin, y + 2, usableWidth, 1);
+    setColor(renderer, blendColor(palette.background, palette.subdued, 0.45F));
+    fillRect(renderer, margin, y + 2, usableWidth, 2);
     y += std::max<std::int32_t>(6, pitch / 5);
 
     const auto& masterColor = masterSelected ? palette.accent : palette.primary;
     if (masterSelected) {
-        const std::int32_t markerW = std::max<std::int32_t>(3, width / 256);
-        const std::int32_t markerH = std::max<std::int32_t>(8, pitch * 3 / 5);
+        setColor(renderer,
+                 blendColor(palette.background, palette.subdued, 0.22F));
+        fillRect(renderer, margin - 4, y + 1, usableWidth + 8, pitch - 2);
         setColor(renderer, palette.accent);
-        fillRect(renderer, std::max<std::int32_t>(4, margin - markerW - 6),
-                 y + (pitch - markerH) / 2, markerW, markerH);
+        fillRect(renderer, margin - 8, y + 3, 4, pitch - 6);
     }
-    drawText(renderer, "MST", margin, y, labelWidth, pitch, masterColor,
+    drawText(renderer, "MASTER", margin, y, labelWidth, pitch, masterColor,
              rowScale);
     const float masterRatio =
         static_cast<float>(ui.systemSettings().audio.masterVolumePercent) /
         100.0F;
-    drawFlatBar(renderer, palette, volBarX, y, volBarW + panBarW, pitch,
+    drawFlatBar(renderer, palette, volBarX, y,
+                volBarW + panBarW + usableWidth * 2 / 100, pitch,
                 BarMode::Unipolar, masterRatio, masterSelected, true);
     if (engine != nullptr) {
         const float masterPeak = std::clamp(engine->masterPeak(), 0.0F, 1.0F);
         if (masterPeak > 0.0F) {
             setColor(renderer, palette.accent);
             fillRect(renderer, volBarX, y + pitch * 3 / 4,
-                     static_cast<std::int32_t>(masterPeak * (volBarW + panBarW)),
-                     2);
+                     static_cast<std::int32_t>(
+                         masterPeak * (volBarW + panBarW + usableWidth * 2 / 100)),
+                     3);
         }
     }
     drawTextRight(
         renderer,
-        "MASTER " +
-            std::to_string(ui.systemSettings().audio.masterVolumePercent) + "%",
+        std::to_string(ui.systemSettings().audio.masterVolumePercent) + "%",
         textX, y, textWidth, pitch, masterColor, rowScale);
 
     drawFooter(renderer, palette, width, height);
@@ -947,12 +1369,12 @@ std::vector<ScreenRow> editRows(const pocket::TrackState& track) {
         static_cast<float>(pocket::EuclideanGenerator::MaxLength - 1);
     const float volumeRatio = static_cast<float>(track.volume) / 100.0F;
 
-    return {{"ELENG", std::to_string(track.rhythm.length), BarMode::Unipolar,
-             lengthRatio, true},
-            {"EFILL", std::to_string(track.rhythm.fill), BarMode::Unipolar,
-             fillRatio, true},
-            {"EOFFS", std::to_string(track.rhythm.offset), BarMode::Unipolar,
-             offsetRatio, true},
+    return {{"ELENG", std::to_string(track.rhythm.length) + " STEPS",
+             BarMode::Unipolar, lengthRatio, true},
+            {"EFILL", std::to_string(track.rhythm.fill) + " PULSES",
+             BarMode::Unipolar, fillRatio, true},
+            {"EOFFS", "+" + std::to_string(track.rhythm.offset) + " ROT",
+             BarMode::Unipolar, offsetRatio, true},
             {"INSTRUMENT",
              track.instrument == pocket::InstrumentType::Sampler ? "SAMPLER"
                                                                  : "SYNTH",
@@ -964,7 +1386,9 @@ std::vector<ScreenRow> editRows(const pocket::TrackState& track) {
              track.muted}};
 }
 
-std::vector<ScreenRow> soundRows(const pocket::TrackState& track) {
+std::vector<ScreenRow> soundRows(
+    const pocket::TrackState& track,
+    const pocket::project::ProjectEffectState& effects) {
     const float attackRatio =
         (track.envelope.attackSeconds -
          pocket::AdEnvelopeSettings::MinAttackSeconds) /
@@ -979,6 +1403,17 @@ std::vector<ScreenRow> soundRows(const pocket::TrackState& track) {
         (track.filter.cutoffHz - pocket::TrackFilterSettings::MinCutoffHz) /
         (pocket::TrackFilterSettings::MaxCutoffHz -
          pocket::TrackFilterSettings::MinCutoffHz);
+    const float pitchRatio =
+        (track.synth.pitchHz - pocket::TrackSynthSettings::MinPitchHz) /
+        (pocket::TrackSynthSettings::MaxPitchHz -
+         pocket::TrackSynthSettings::MinPitchHz);
+    const float delayTimeRatio =
+        static_cast<float>(effects.delayMilliseconds -
+                           pocket::audio::DelayEffect::MinDelayMs) /
+        static_cast<float>(pocket::audio::DelayEffect::MaxDelayMs -
+                           pocket::audio::DelayEffect::MinDelayMs);
+    const float delayFbRatio =
+        effects.delayFeedback / pocket::audio::DelayEffect::MaxFeedback;
 
     return {{"ATTACK",
              formatNumber("%.0f MS", track.envelope.attackSeconds * 1000.0),
@@ -989,7 +1424,22 @@ std::vector<ScreenRow> soundRows(const pocket::TrackState& track) {
             {"FILTER", track.filter.enabled ? "ON" : "OFF", BarMode::Discrete,
              0.0F, track.filter.enabled},
             {"CUTOFF", formatNumber("%.0f HZ", track.filter.cutoffHz),
-             BarMode::Unipolar, cutoffRatio, track.filter.enabled}};
+             BarMode::Unipolar, cutoffRatio, track.filter.enabled},
+            {"SYNTH PITCH", formatNumber("%.0f HZ", track.synth.pitchHz),
+             BarMode::Unipolar, pitchRatio, true},
+            {"SYNTH MORPH", formatNumber("%.0f%%", track.synth.morph * 100.0),
+             BarMode::Unipolar, track.synth.morph, true},
+            {"SYNTH TIMBRE", formatNumber("%.0f%%", track.synth.timbre * 100.0),
+             BarMode::Unipolar, track.synth.timbre, true},
+            {"SYNTH COLOR", formatNumber("%.0f%%", track.synth.color * 100.0),
+             BarMode::Unipolar, track.synth.color, true},
+            {"DELAY TIME", std::to_string(effects.delayMilliseconds) + " MS",
+             BarMode::Unipolar, delayTimeRatio, true},
+            {"DELAY FDBK",
+             formatNumber("%.0f%%", effects.delayFeedback * 100.0),
+             BarMode::Unipolar, delayFbRatio, true},
+            {"DELAY MIX", formatNumber("%.0f%%", effects.delayMix * 100.0),
+             BarMode::Unipolar, effects.delayMix, true}};
 }
 
 const char* waveformName(pocket::LfoWaveform w) {
@@ -1060,7 +1510,7 @@ std::vector<ScreenRow> modulationRows(const pocket::TrackState& track) {
             {"TARGET", destination, BarMode::Unipolar,
              static_cast<float>(static_cast<int>(lfo.destination) + 1) / 3.0F,
              true},
-            {"DEPTH", formatNumber("%+d", static_cast<int>(lfo.amount)),
+            {"DEPTH", formatNumber("%+.0f", static_cast<double>(lfo.amount)),
              BarMode::Bipolar, amountRatio, true},
             {"JITTER", jitter.enabled ? "ON" : "OFF", BarMode::Discrete, 0.0F,
              jitter.enabled},
@@ -1153,6 +1603,11 @@ void pushAllTrackAudioParameters(
     const pocket::ui::UiController& ui,
     pocket::audio::AudioParameterQueue& queue) noexcept {
     using pocket::audio::AudioParameter;
+    const auto& fx = ui.effects();
+    queue.push({AudioParameter::DelayTimeMs, 0,
+                static_cast<float>(fx.delayMilliseconds)});
+    queue.push({AudioParameter::DelayFeedback, 0, fx.delayFeedback});
+    queue.push({AudioParameter::DelayMix, 0, fx.delayMix});
     for (std::size_t track = 0; track < pocket::TrackCount; ++track) {
         const auto& settings = ui.state().audioTrackSettings[track];
         const auto index = static_cast<std::uint8_t>(track);
@@ -1169,6 +1624,14 @@ void pushAllTrackAudioParameters(
                     settings.filter.enabled ? 1.0F : 0.0F});
         queue.push({AudioParameter::TrackFilterCutoff, index,
                     settings.filter.cutoffHz});
+        queue.push({AudioParameter::TrackSynthPitch, index,
+                    settings.synth.pitchHz});
+        queue.push({AudioParameter::TrackSynthMorph, index,
+                    settings.synth.morph});
+        queue.push({AudioParameter::TrackSynthTimbre, index,
+                    settings.synth.timbre});
+        queue.push({AudioParameter::TrackSynthColor, index,
+                    settings.synth.color});
     }
 }
 
@@ -1210,12 +1673,42 @@ int runSdlApp(const AppOptions& options) {
     }
 
     pocket::Sequencer sequencer;
+    constexpr std::array<float, pocket::TrackCount> PresetPitches = {
+        55.0F, 110.0F, 146.8F, 220.0F, 293.7F, 329.6F, 440.0F, 587.3F};
+    constexpr std::array<float, pocket::TrackCount> PresetPans = {
+        0.0F, -0.25F, 0.30F, -0.45F, 0.40F, -0.15F, 0.55F, -0.35F};
+    constexpr std::array<std::uint8_t, pocket::TrackCount> PresetVolumes = {
+        95, 85, 80, 90, 75, 85, 70, 80};
     for (std::size_t track = 0; track < pocket::TrackCount; ++track) {
         sequencer.setRhythm(track, pocket::ExamplePresetRhythms[track]);
+        sequencer.setVolume(track, PresetVolumes[track]);
+        sequencer.setPan(track, PresetPans[track]);
+        if (track == 2 || track == 4 || track == 6) {
+            sequencer.setInstrument(track, pocket::InstrumentType::Synth);
+        }
+        pocket::TrackSynthSettings syn{};
+        syn.pitchHz = PresetPitches[track];
+        syn.morph = 0.20F + 0.10F * static_cast<float>(track);
+        syn.timbre = 0.35F + 0.07F * static_cast<float>(track);
+        syn.color = 0.30F + 0.08F * static_cast<float>(track);
+        sequencer.setSynth(track, syn);
+        if (track == 0 || track == 2 || track == 3) {
+            sequencer.setFilter(track, {true, 4800.0F + 1800.0F * static_cast<float>(track)});
+        }
+        pocket::LfoConfig lfo = sequencer.track(track).lfos[0];
+        lfo.enabled = (track % 2 == 0);
+        lfo.waveform = static_cast<pocket::LfoWaveform>(track % 6);
+        lfo.amount = static_cast<std::int8_t>((track % 2 == 0 ? 1 : -1) * (10 + static_cast<int>(track) * 2));
+        sequencer.setLfo(track, lfo, 0);
+        pocket::JitterConfig jit = sequencer.track(track).jitter;
+        jit.enabled = true;
+        jit.intensity = static_cast<std::uint8_t>(25 + track * 6);
+        sequencer.setJitter(track, jit);
     }
     const pocket::platform::SystemCapabilities capabilities{true,  true,  true,
                                                              true,  true,  true};
     pocket::ui::UiController ui(sequencer, capabilities);
+    ui.resyncFromSequencer();
     const std::string settingsPath =
         (std::filesystem::path(options.dataDir) / "settings.cfg").string();
     {
@@ -1285,7 +1778,6 @@ int runSdlApp(const AppOptions& options) {
         std::cerr << text << '\n';
     };
 
-    pocket::project::ProjectEffectState currentEffects{};
     const std::string projectPath =
         (std::filesystem::path(options.dataDir) / "project.pec").string();
     const auto applyToLive = [&](const pocket::project::ProjectData& data) {
@@ -1295,12 +1787,13 @@ int runSdlApp(const AppOptions& options) {
         }
         pocket::project::applyProject(data, sequencer);
         ui.resyncFromSequencer();
+        ui.setEffects(data.effects);
         ui.setModified(false);
-        currentEffects = data.effects;
         if (audioRunning) {
             engine.syncSequencer(sequencer);
-            engine.setEffectState(currentEffects);
             pushAllTrackAudioParameters(ui, engine.parameterQueue());
+        } else {
+            engine.setEffectState(ui.effects());
         }
         return true;
     };
@@ -1316,7 +1809,6 @@ int runSdlApp(const AppOptions& options) {
             for (std::size_t i = 0; i < pocket::TrackCount; ++i) {
                 fresh.tracks[i].rhythm = pocket::ExamplePresetRhythms[i];
             }
-            currentEffects = fresh.effects;
             setStatus(applyToLive(fresh) ? "NEW PROJECT" : "NEW FAILED");
             break;
         }
@@ -1325,7 +1817,7 @@ int runSdlApp(const AppOptions& options) {
             if (pocket::project::saveProjectFile(
                     projectPath,
                     pocket::project::captureProject(
-                        sequencer, ui.state().audioTrackSettings, &currentEffects),
+                        sequencer, ui.state().audioTrackSettings, &ui.effects()),
                     &error)) {
                 ui.setModified(false);
                 setStatus("SAVED");
@@ -1338,7 +1830,6 @@ int runSdlApp(const AppOptions& options) {
             if (!pocket::project::loadProjectFile(projectPath, data, &error)) {
                 setStatus("LOAD FAILED: " + error);
             } else {
-                currentEffects = data.effects;
                 setStatus(applyToLive(data) ? "LOADED" : "LOAD FAILED: bad values");
             }
             break;
@@ -1362,7 +1853,8 @@ int runSdlApp(const AppOptions& options) {
         }
         if (audioRunning) {
             engine.syncSequencer(sequencer);
-            engine.setEffectState(currentEffects);
+        } else {
+            engine.setEffectState(ui.effects());
         }
     };
     if (std::filesystem::exists(projectPath)) {
@@ -1613,7 +2105,6 @@ int runSdlApp(const AppOptions& options) {
             }
         } else {
             engine.syncSequencer(sequencer);
-            engine.setEffectState(currentEffects);
             engine.updateLights();
             engine.updateMeters();
         }
@@ -1643,36 +2134,56 @@ int runSdlApp(const AppOptions& options) {
                 " T" + std::to_string(trackIndex + 1);
             const std::string headerStatus = headerStatusFor(sequencer, ui);
 
+            const std::int32_t margin = std::max<std::int32_t>(16, width / 24);
+            const std::int32_t headerHeight = std::max<std::int32_t>(36, height / 13);
+            const std::int32_t topY = std::max<std::int32_t>(10, height / 42);
+            const std::int32_t bannerTop =
+                topY + headerHeight + std::max<std::int32_t>(6, height / 72);
+            const std::int32_t bannerW = width - 2 * margin;
+
             switch (ui.state().screen) {
             case pocket::ui::Screen::Main:
                 renderMainScreen(renderer, sequencer, ui,
                                  audioRunning ? &engine : nullptr, width,
                                  height);
                 break;
-            case pocket::ui::Screen::Edit:
+            case pocket::ui::Screen::Edit: {
+                const std::int32_t explorerH = std::max<std::int32_t>(140, height * 28 / 100);
                 renderRows(renderer, *palette, "EDIT" + trackTitleSuffix,
                            headerStatus, editRows(selectedTrack),
                            static_cast<std::size_t>(ui.state().editField),
-                           width, height, &selectedTrack,
-                           sequencer.isPlaying());
+                           width, height, explorerH + 12);
+                drawEditEuclideanExplorer(renderer, *palette, sequencer, ui,
+                                          margin, bannerTop, bannerW,
+                                          explorerH);
                 break;
-            case pocket::ui::Screen::Sound:
+            }
+            case pocket::ui::Screen::Sound: {
+                const std::int32_t vizH = std::max<std::int32_t>(88, height * 15 / 100);
                 renderRows(renderer, *palette, "SOUND" + trackTitleSuffix,
-                           headerStatus, soundRows(selectedTrack),
+                           headerStatus, soundRows(selectedTrack, ui.effects()),
                            static_cast<std::size_t>(ui.state().soundField),
-                           width, height);
+                           width, height, vizH + 10);
+                drawSoundVisualizer(renderer, *palette, selectedTrack,
+                                    ui.effects(), margin, bannerTop, bannerW,
+                                    vizH);
                 break;
+            }
             case pocket::ui::Screen::Mixer:
                 renderMixerScreen(renderer, *palette, sequencer, ui,
                                   audioRunning ? &engine : nullptr, width,
                                   height);
                 break;
-            case pocket::ui::Screen::Modulation:
+            case pocket::ui::Screen::Modulation: {
+                const std::int32_t vizH = std::max<std::int32_t>(84, height * 14 / 100);
                 renderRows(renderer, *palette, "MODULATION" + trackTitleSuffix,
                            headerStatus, modulationRows(selectedTrack),
                            static_cast<std::size_t>(ui.state().modulationField),
-                           width, height);
+                           width, height, vizH + 10);
+                drawModulationVisualizer(renderer, *palette, selectedTrack,
+                                         margin, bannerTop, bannerW, vizH);
                 break;
+            }
             case pocket::ui::Screen::System:
                 renderRows(renderer, *palette, "SYSTEM", headerStatus,
                            systemRows(ui.systemSettings()),

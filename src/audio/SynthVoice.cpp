@@ -20,7 +20,30 @@ bool SynthVoiceRack::configure(std::size_t track,
         return false;
     }
     voices_[track] = voice;
+    parameters_[track] = parameters;
     return true;
+}
+
+bool SynthVoiceRack::updateParameters(
+    std::size_t track, const SynthParameters& parameters) noexcept {
+    if (track >= voices_.size() || voices_[track] == nullptr ||
+        !isValid(parameters)) {
+        return false;
+    }
+    if (!voices_[track]->setParameters(parameters)) {
+        return false;
+    }
+    parameters_[track] = parameters;
+    return true;
+}
+
+const SynthParameters& SynthVoiceRack::parameters(
+    std::size_t track) const noexcept {
+    static constexpr SynthParameters DefaultParameters{};
+    if (track >= parameters_.size()) {
+        return DefaultParameters;
+    }
+    return parameters_[track];
 }
 
 bool SynthVoiceRack::trigger(std::size_t track, float velocity) noexcept {

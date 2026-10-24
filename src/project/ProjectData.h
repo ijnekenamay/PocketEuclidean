@@ -27,6 +27,7 @@ struct ProjectTrackData {
     float pan = 0.0F;
     AdEnvelopeSettings envelope{};
     TrackFilterSettings filter{};
+    TrackSynthSettings synth{};
 };
 
 struct ProjectData {

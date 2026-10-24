@@ -8,6 +8,18 @@ sampler and replaceable lightweight synthesizer voices. TrimUI Brick Pro /
 NextUI / PortMaster is the first handheld target under consideration; other
 Linux handhelds and desktop systems remain part of the portability design.
 
+## UI Screenshots (Elastic Full-Width Polymetric Design)
+
+Each track's Euclidean step bar stretches elastically to 100% of the lane width regardless of step count (`ELENG` 2..32), making polymetric phase relationships (e.g., 16 vs 12 vs 7 vs 15 vs 8 vs 11 vs 5 steps) immediately legible at a glance.
+
+| MAIN (Elastic Polymetric Grid) | EDIT (Step Explorer & 8-Track Phase Matrix) |
+| :---: | :---: |
+| ![MAIN Screen](docs/images/ui_main.png) | ![EDIT Screen](docs/images/ui_edit.png) |
+| **SOUND (AD / LPF / VA Synth / Delay Visualizer)** | **MIXER CONSOLE (8-Ch Level & Pan Field)** |
+| ![SOUND Screen](docs/images/ui_sound.png) | ![MIXER Screen](docs/images/ui_mixer.png) |
+| **MODULATION (LFO Cycle & Jitter Scatter)** | **SYSTEM (Clock / MIDI / Display Theme)** |
+| ![MODULATION Screen](docs/images/ui_modulation.png) | ![SYSTEM Screen](docs/images/ui_system.png) |
+
 ## Project status
 
 The repository currently provides a portable sequencer and modulation core,

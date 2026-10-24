@@ -146,6 +146,22 @@ bool Sequencer::setFilter(
     return true;
 }
 
+bool Sequencer::setSynth(
+    std::size_t index, const TrackSynthSettings& synth) noexcept {
+    if (index >= TrackCount || !std::isfinite(synth.pitchHz) ||
+        synth.pitchHz < TrackSynthSettings::MinPitchHz ||
+        synth.pitchHz > TrackSynthSettings::MaxPitchHz ||
+        !std::isfinite(synth.morph) || synth.morph < 0.0F ||
+        synth.morph > 1.0F || !std::isfinite(synth.timbre) ||
+        synth.timbre < 0.0F || synth.timbre > 1.0F ||
+        !std::isfinite(synth.color) || synth.color < 0.0F ||
+        synth.color > 1.0F) {
+        return false;
+    }
+    tracks_[index].synth = synth;
+    return true;
+}
+
 TickResult Sequencer::tick() {
     TickResult result;
     if (!playing_) {

@@ -44,15 +44,13 @@ public:
                 track, {samples_[track].data(), samples_[track].size(),
                         SourceSampleRate});
         }
-        constexpr std::array<float, TrackCount> DefaultPitches = {
-            55.00F, 110.00F, 164.81F, 220.00F, 261.63F, 329.63F, 440.00F, 523.25F
-        };
         for (std::size_t track = 0; track < TrackCount; ++track) {
+            const auto& synth = uiSequencer.track(track).synth;
             audio::SynthParameters params;
-            params.pitchHz = DefaultPitches[track];
-            params.morph = static_cast<float>(track % 4) * 0.33F;
-            params.timbre = 0.5F;
-            params.color = 0.5F;
+            params.pitchHz = synth.pitchHz;
+            params.morph = synth.morph;
+            params.timbre = synth.timbre;
+            params.color = synth.color;
             params.level = 0.7F;
             synthRack_.configure(track, &synthVoices_[track], params);
         }
