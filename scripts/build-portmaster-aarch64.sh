@@ -52,10 +52,19 @@ if [ ! -f "$SDL_PREFIX/lib/cmake/SDL2/sdl2-config.cmake" ]; then
       "https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VER/SDL2-$SDL_VER.tar.gz"
     tar -xzf "$OUT/sdl2.tar.gz" -C "$OUT"
   fi
+  rm -rf "$OUT/sdl2-build"
+  # Ignore host pkg-config and x86_64 system libraries when cross-compiling SDL2
+  # as a link-only stub; the target device provides its own runtime libSDL2.
   cmake -S "$OUT/SDL2-$SDL_VER" -B "$OUT/sdl2-build" "${TOOLCHAIN_ARGS[@]}" \
+    -DCMAKE_FIND_ROOT_PATH="$SDL_PREFIX" \
+    -DPKG_CONFIG_EXECUTABLE=FALSE \
     -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--version-script=$OUT/sdl2.map" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$SDL_PREFIX" \
-    -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF -DSDL_TESTS=OFF
+    -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF -DSDL_TESTS=OFF \
+    -DSDL_LIBSAMPLERATE=OFF -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_KMSDRM=OFF \
+    -DSDL_OPENGL=OFF -DSDL_OPENGLES=OFF -DSDL_VULKAN=OFF -DSDL_ALSA=OFF \
+    -DSDL_PULSEAUDIO=OFF -DSDL_PIPEWIRE=OFF -DSDL_SNDIO=OFF -DSDL_DBUS=OFF \
+    -DSDL_UDEV=OFF -DSDL_IBUS=OFF
   cmake --build "$OUT/sdl2-build"
   cmake --install "$OUT/sdl2-build"
 fi
