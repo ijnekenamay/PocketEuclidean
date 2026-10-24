@@ -28,8 +28,8 @@ bool layoutMainScreen(const MainScreenSnapshot& snapshot,
 
     const auto marginX = std::max<std::int32_t>(16, width / 24);
     const auto marginY = std::max<std::int32_t>(12, height / 28);
-    const auto labelWidth = std::max<std::int32_t>(48, width / 10);
-    const auto labelGap = std::max<std::int32_t>(8, width / 64);
+    const auto labelWidth = std::max<std::int32_t>(24, width / 26);
+    const auto labelGap = std::max<std::int32_t>(8, width / 80);
     const auto headerHeight = std::max<std::int32_t>(44, height / 9);
     const auto footerHeight = std::max<std::int32_t>(20, height / 24);
     const auto rowsTop = marginY + headerHeight;
@@ -58,8 +58,7 @@ bool layoutMainScreen(const MainScreenSnapshot& snapshot,
     next.masterTickPosition = snapshot.masterTickPosition;
     next.playing = snapshot.playing;
 
-    const auto activeBarHeight = std::max<std::int32_t>(4, rowPitch * 3 / 4);
-    const auto restBarHeight = std::max<std::int32_t>(2, rowPitch * 7 / 20);
+    const auto stepBarHeight = std::max<std::int32_t>(4, rowPitch - std::max<std::int32_t>(6, rowPitch / 6));
     for (std::size_t trackIndex = 0; trackIndex < TrackCount; ++trackIndex) {
         const auto& source = snapshot.tracks[trackIndex];
         if (!EuclideanGenerator::isValid(source.rhythm) ||
@@ -90,8 +89,7 @@ bool layoutMainScreen(const MainScreenSnapshot& snapshot,
                                  : 0;
             const auto barWidth =
                 std::max<std::int32_t>(1, cellWidth - gap);
-            const auto barHeight =
-                source.activeSteps[step] ? activeBarHeight : restBarHeight;
+            const auto barHeight = stepBarHeight;
 
             auto& bar = row.steps[step];
             bar.x = cellX0;
