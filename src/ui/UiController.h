@@ -158,6 +158,14 @@ public:
         }
     }
     ProjectRequest takeProjectRequest() noexcept;
+    // Restores persisted settings at startup; invalid settings are ignored.
+    bool setSystemSettings(const platform::SystemSettings& settings) noexcept {
+        if (!platform::isValid(settings)) {
+            return false;
+        }
+        systemSettings_ = settings;
+        return true;
+    }
     void setModified(bool modified) noexcept { state_.modified = modified; }
 
 private:

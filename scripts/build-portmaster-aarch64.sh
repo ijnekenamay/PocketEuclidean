@@ -25,8 +25,8 @@ TARGET="aarch64-linux-gnu.${GLIBC}"
 mkdir -p "$OUT/bin"
 
 # CMake needs single-executable compilers, so wrap "zig cc" / "zig c++".
-printf '#!/bin/sh\nexec "%s" cc -target %s "$@"\n' "$ZIG" "$TARGET" > "$OUT/bin/zigcc"
-printf '#!/bin/sh\nexec "%s" c++ -target %s "$@"\n' "$ZIG" "$TARGET" > "$OUT/bin/zigcxx"
+printf '#!/bin/sh\nexec "%s" cc -target %s -mno-outline-atomics "$@"\n' "$ZIG" "$TARGET" > "$OUT/bin/zigcc"
+printf '#!/bin/sh\nexec "%s" c++ -target %s -mno-outline-atomics "$@"\n' "$ZIG" "$TARGET" > "$OUT/bin/zigcxx"
 printf '#!/bin/sh\nexec "%s" ar "$@"\n' "$ZIG" > "$OUT/bin/zigar"
 printf '#!/bin/sh\nexec "%s" ranlib "$@"\n' "$ZIG" > "$OUT/bin/zigranlib"
 chmod +x "$OUT"/bin/*
@@ -43,12 +43,17 @@ TOOLCHAIN_ARGS=(
 SDL_PREFIX="$OUT/sdl2-aarch64"
 if [ ! -f "$SDL_PREFIX/lib/cmake/SDL2/sdl2-config.cmake" ]; then
   echo "== Building SDL2 $SDL_VER for linking =="
+  # zig puts its compiler-rt into the SDL shared library and exports it. The
+  # app would then bind __aarch64_*/__divti3 to that copy instead of embedding
+  # its own, and the device's libSDL2 does not provide them. Export SDL_* only.
+  printf '{ global: SDL_*; local: *; };\n' > "$OUT/sdl2.map"
   if [ ! -d "$OUT/SDL2-$SDL_VER" ]; then
     curl -fL -o "$OUT/sdl2.tar.gz" \
       "https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VER/SDL2-$SDL_VER.tar.gz"
     tar -xzf "$OUT/sdl2.tar.gz" -C "$OUT"
   fi
   cmake -S "$OUT/SDL2-$SDL_VER" -B "$OUT/sdl2-build" "${TOOLCHAIN_ARGS[@]}" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--version-script=$OUT/sdl2.map" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$SDL_PREFIX" \
     -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF -DSDL_TESTS=OFF
   cmake --build "$OUT/sdl2-build"
@@ -64,6 +69,13 @@ cmake --build "$OUT/app-build"
 BIN="$(ls "$OUT"/app-build/pocketeuclidean.* | head -n 1)"
 echo "== Built: $BIN =="
 file "$BIN" || true
+
+# The device only provides libSDL2/libc/libm/libpthread/libdl. Any other
+# undefined symbol (e.g. __aarch64_* outline-atomics helpers) fails at launch.
+if command -v nm >/dev/null 2>&1 && nm -D --undefined-only "$BIN" | grep -q ' __aarch64_'; then
+  echo "ERROR: binary references __aarch64_* helper symbols" >&2
+  exit 1
+fi
 
 # Assemble the PortMaster package: copy the skeleton, add the binary, zip it.
 # Zip entries keep Unix permissions so the launch script stays executable.

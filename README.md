@@ -82,7 +82,7 @@ Examples:
 .\build\windows\Debug\pocket_euclidean_app.exe --play --samples C:\path\to\wavs
 ```
 
-`--data <dir>`（既定 `./conf`）の `project.pec` に、Project menu（Select）の SAVE／LOAD／NEW で保存・読み込みできます。起動時に存在すれば自動で読み込みます。ファイル選択UIはまだなく、1スロットのみです。
+`--data <dir>`（既定 `./conf`）の `project.pec` に、Project menu（Select）の SAVE／LOAD／NEW で保存・読み込みできます。起動時に存在すれば自動で読み込みます。ファイル選択UIはまだなく、1スロットのみです。同じディレクトリの `settings.cfg` にはテーマとマスター音量などが自動保存されます。
 
 ```powershell
 # ハンドヘルド向けの起動オプション: 全画面、音声レート／バッファー指定。
@@ -98,7 +98,7 @@ WSL／Linux 上で、zig をツールチェーンにしてルート権限なし�
 scripts/build-portmaster-aarch64.sh   # 成果物: ~/pocket-portmaster-build/dist/pocketeuclidean.zip
 ```
 
-対象 glibc は既定 2.28（`GLIBC=` で変更）。SDL2 はリンク用にソースからビルドするだけで、実機では端末側の libSDL2 を使います。実機や QEMU での動作は未確認です。
+対象 glibc は既定 2.28（`GLIBC=` で変更）。SDL2 はリンク用にソースからビルドするだけで、実機では端末側の libSDL2 を使います（リンク用 SDL2 は `SDL_*` のみ公開するよう制限し、zig の compiler-rt をアプリに埋め込ませています）。R36S では初版が `__aarch64_ldadd8_relax` の未解決で起動しなかったため修正済みですが、修正版の実機動作は未確認です。
 
 Other desktop platforms can use the same CMake targets with their native
 C++17 compiler:

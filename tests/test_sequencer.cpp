@@ -13,6 +13,7 @@
 #include "platform/BackendInterfaces.h"
 #include "project/ProjectData.h"
 #include "project/ProjectStore.h"
+#include "platform/SettingsStore.h"
 #include "ui/ThemePalette.h"
 
 #include <cstdlib>
@@ -1845,9 +1846,49 @@ void testProjectStoreRoundTrip() {
     std::filesystem::remove_all(std::filesystem::path(path).parent_path(), ec);
 }
 
+void testSettingsStore() {
+    using namespace pocket;
+    platform::SystemSettings settings;
+    settings.audio.sampleRate = 44100;
+    settings.audio.bufferFrames = 512;
+    settings.audio.masterVolumePercent = 65;
+    settings.display.theme = platform::ThemeId::HighContrast;
+    settings.input.repeatDelayMs = 400;
+    const auto text = platform::serializeSettings(settings);
+    platform::SystemSettings parsed;
+    std::string error;
+    expect(platform::parseSettings(text, parsed, &error), "settings parse: " + error);
+    expect(platform::serializeSettings(parsed) == text, "settings round-trip");
+    expect(parsed.audio.masterVolumePercent == 65 &&
+               parsed.display.theme == platform::ThemeId::HighContrast,
+           "settings values restored");
+
+    platform::SystemSettings untouched;
+    untouched.audio.masterVolumePercent = 11;
+    expect(!platform::parseSettings("junk", untouched), "settings reject header");
+    expect(!platform::parseSettings("PocketEuclideanSettings\nversion 3\ntheme 9\n", untouched),
+           "settings reject theme out of range");
+    expect(!platform::parseSettings("PocketEuclideanSettings\nversion 3\naudio 10 512 50\n",
+                                    untouched),
+           "settings reject sample rate out of range");
+    expect(!platform::parseSettings("PocketEuclideanSettings\nversion 3\nwat 1\n", untouched),
+           "settings reject unknown key");
+    expect(untouched.audio.masterVolumePercent == 11, "failed settings parse is inert");
+
+    const auto path = (std::filesystem::temp_directory_path() /
+                       "pocket_test_settings" / "settings.cfg").string();
+    expect(platform::saveSettingsFile(path, settings, &error), "save settings: " + error);
+    platform::SystemSettings loaded;
+    expect(platform::loadSettingsFile(path, loaded, &error), "load settings: " + error);
+    expect(platform::serializeSettings(loaded) == text, "settings file round-trips");
+    std::error_code ec;
+    std::filesystem::remove_all(std::filesystem::path(path).parent_path(), ec);
+}
+
 } // namespace
 
 int main() {
+    testSettingsStore();
     testProjectStoreRoundTrip();
     testPulseCountAndRotation();
     testEvenDistribution();

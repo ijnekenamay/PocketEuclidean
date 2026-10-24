@@ -32,6 +32,7 @@ add_library(pocket_euclidean
     src/sequencer/Modulation.cpp
     src/sequencer/Sequencer.cpp
     src/platform/SystemSettings.cpp
+    src/platform/SettingsStore.cpp
     src/project/ProjectStore.cpp
     src/ui/InputMapping.cpp
     src/ui/MainScreenDrawList.cpp

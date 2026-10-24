@@ -3,6 +3,7 @@
 #include "app/DesktopAudioEngine.h"
 #endif
 #include "platform/SystemSettings.h"
+#include "platform/SettingsStore.h"
 #include "project/ProjectStore.h"
 #include "sequencer/Sequencer.h"
 #include "ui/InputMapping.h"
@@ -726,6 +727,24 @@ int runSdlApp(const AppOptions& options) {
     const pocket::platform::SystemCapabilities capabilities{true,  true,  true,
                                                              true,  true,  true};
     pocket::ui::UiController ui(sequencer, capabilities);
+    const std::string settingsPath =
+        (std::filesystem::path(options.dataDir) / "settings.cfg").string();
+    {
+        pocket::platform::SystemSettings stored;
+        std::string settingsError;
+        if (std::filesystem::exists(settingsPath)) {
+            if (pocket::platform::loadSettingsFile(settingsPath, stored,
+                                                   &settingsError) &&
+                ui.setSystemSettings(stored)) {
+                std::cerr << "Loaded settings from " << settingsPath << '\n';
+            } else {
+                std::cerr << "Ignoring settings file: " << settingsError
+                          << '\n';
+            }
+        }
+    }
+    std::string savedSettingsText =
+        pocket::platform::serializeSettings(ui.systemSettings());
     pocket::ui::InputRepeater repeater;
     for (int i = 0; i < options.startScreen; ++i) {
         ui.dispatch({pocket::ui::Action::ScreenNext});
@@ -756,6 +775,9 @@ int runSdlApp(const AppOptions& options) {
                                       : audioSettings.bufferFrames});
         if (audioRunning) {
             ui.setAudioParameterQueue(&engine.parameterQueue());
+            engine.parameterQueue().push(
+                {pocket::audio::AudioParameter::MasterVolume, 0,
+                 static_cast<float>(audioSettings.masterVolumePercent)});
             std::cerr << "Audio started: " << engine.obtainedSpec().sampleRate
                       << " Hz, " << engine.obtainedSpec().bufferFrames
                       << " frames\n";
@@ -829,6 +851,18 @@ int runSdlApp(const AppOptions& options) {
     const auto dispatchUi = [&](const pocket::ui::ActionEvent& event) {
         ui.dispatch(event);
         handleProjectRequest(ui.takeProjectRequest());
+        const auto settingsText =
+            pocket::platform::serializeSettings(ui.systemSettings());
+        if (settingsText != savedSettingsText) {
+            std::string saveError;
+            if (pocket::platform::saveSettingsFile(
+                    settingsPath, ui.systemSettings(), &saveError)) {
+                savedSettingsText = settingsText;
+            } else {
+                setStatus("SETTINGS SAVE FAILED: " + saveError);
+                savedSettingsText = settingsText;
+            }
+        }
         if (audioRunning) {
             engine.syncSequencer(sequencer);
         }
