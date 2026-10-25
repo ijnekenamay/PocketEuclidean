@@ -4,6 +4,7 @@
 #include "audio/SequencerCommandQueue.h"
 #include "sequencer/Sequencer.h"
 #include "ui/StepTriggerEventQueue.h"
+#include "ui/PlayheadMirror.h"
 
 #include <atomic>
 #include <cstdint>
@@ -47,6 +48,9 @@ public:
     void setSequencerCommandQueue(SequencerCommandQueue* queue) noexcept {
         sequencerQueue_ = queue;
     }
+    void setPlayheadMirror(ui::PlayheadMirror* mirror) noexcept {
+        playhead_ = mirror;
+    }
     void resetTimeline() noexcept;
     std::uint32_t callbackFailureCount() const noexcept {
         return callbackFailureCount_.load(std::memory_order_relaxed);
@@ -66,6 +70,7 @@ private:
     SamplerMixerRenderer* renderer_ = nullptr;
     AudioParameterQueue* parameterQueue_ = nullptr;
     SequencerCommandQueue* sequencerQueue_ = nullptr;
+    ui::PlayheadMirror* playhead_ = nullptr;
     std::uint64_t nextBlockStartFrame_ = 0;
     std::atomic<std::uint32_t> callbackFailureCount_{0};
 };

@@ -116,6 +116,12 @@ bool AudioCallbackProcessor::process(float* interleavedStereo,
                 return;
             }
             visualEvents_.pushTick(blockStartFrame + sampleOffset, tick);
+            if (playhead_ != nullptr) {
+    for (std::size_t t = 0; t < TrackCount; ++t) {
+        const auto& s = sequencer_.track(t);
+        playhead_->publish(t, s.position, s.effectiveRhythm.length);
+    }
+}
             if (tickCallback_ != nullptr) {
                 tickCallback_(tickUserData_, sampleOffset, tick);
             }

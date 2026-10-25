@@ -661,7 +661,16 @@ void renderMainScreen(SDL_Renderer* renderer,
                                             snapshot)) {
         return;
     }
-
+    if (engine != nullptr) {
+        for (std::size_t t = 0; t < pocket::TrackCount; ++t) {
+            const auto ph = engine->playhead().read(t);
+            const auto len = snapshot.tracks[t].rhythm.length;
+            if (ph.length != 0) {
+                snapshot.tracks[t].position =
+                    static_cast<std::uint8_t>(ph.position % len);
+            }
+        }
+    }
     pocket::ui::MainScreenFrame frame;
     if (!pocket::ui::layoutMainScreen(snapshot, ui.systemSettings().display.theme,
                                       width, height, frame)) {
