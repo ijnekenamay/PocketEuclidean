@@ -10,6 +10,7 @@
 #include "audio/SamplerMixerRenderer.h"
 #include "audio/SamplerVoicePool.h"
 #include "sequencer/Sequencer.h"
+#include "ui/PlayheadMirror.h"
 #include "ui/StepLightBank.h"
 #include "ui/StepTriggerEventQueue.h"
 
@@ -56,7 +57,11 @@ public:
         }
         processor_.setParameterQueue(&queue_);
         processor_.setSequencerCommandQueue(&sequencerQueue_);
+        processor_.setPlayheadMirror(&playheadMirror_);
     }
+
+    ui::PlayheadMirror& playhead() noexcept { return playheadMirror_; }
+    const ui::PlayheadMirror& playhead() const noexcept { return playheadMirror_; }
 
     // UI thread: forwards UI-side Sequencer edits to the audio thread's copy.
     void syncSequencer(const Sequencer& uiSequencer) {
@@ -225,6 +230,7 @@ private:
     audio::Mixer mixer_;
     audio::SamplerMixerRenderer renderer_;
     audio::AudioCallbackProcessor processor_;
+    ui::PlayheadMirror playheadMirror_;
     ui::StepLightBank lights_;
     std::vector<float> cacheStorage_ = std::vector<float>(8U * 1024U * 1024U);
     audio::SampleCache cache_{cacheStorage_.data(), cacheStorage_.size()};
