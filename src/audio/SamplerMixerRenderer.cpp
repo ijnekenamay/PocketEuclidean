@@ -18,6 +18,7 @@ SamplerMixerRenderer::SamplerMixerRenderer(
         filterSettings_[track] = state.filter;
         synthSettings_[track] = state.synth;
     }
+    setEffectState(effectState_);
 }
 
 SamplerMixerRenderer::SamplerMixerRenderer(
@@ -39,6 +40,7 @@ SamplerMixerRenderer::SamplerMixerRenderer(
         synthSettings_[track] = state.synth;
         syncSynthVoice(track);
     }
+    setEffectState(effectState_);
 }
 
 bool SamplerMixerRenderer::setMasterVolume(
@@ -54,6 +56,9 @@ void SamplerMixerRenderer::setEffectState(
     const project::ProjectEffectState& state) noexcept {
     effectState_ = state;
     delayEffect_.setParameters(effectState_);
+    project::ProjectEffectState sendState = effectState_;
+    sendState.delayMix = 1.0F;
+    delaySendEffect_.setParameters(sendState);
 }
 
 const TrackSynthSettings& SamplerMixerRenderer::synthSettings(
@@ -74,6 +79,7 @@ bool SamplerMixerRenderer::syncSynthVoice(std::size_t track) noexcept {
     params.morph = synthSettings_[track].morph;
     params.timbre = synthSettings_[track].timbre;
     params.color = synthSettings_[track].color;
+    params.engine = synthSettings_[track].engineType;
     return synthVoices_->updateParameters(track, params);
 }
 
@@ -130,11 +136,17 @@ bool SamplerMixerRenderer::applyCommand(
         effectState_.delayMilliseconds =
             static_cast<std::uint16_t>(command.value);
         delayEffect_.setParameters(effectState_);
+        project::ProjectEffectState sendState = effectState_;
+        sendState.delayMix = 1.0F;
+        delaySendEffect_.setParameters(sendState);
         return true;
     }
     if (command.parameter == AudioParameter::DelayFeedback) {
         effectState_.delayFeedback = command.value;
         delayEffect_.setParameters(effectState_);
+        project::ProjectEffectState sendState = effectState_;
+        sendState.delayMix = 1.0F;
+        delaySendEffect_.setParameters(sendState);
         return true;
     }
     if (command.parameter == AudioParameter::DelayMix) {
@@ -154,6 +166,12 @@ bool SamplerMixerRenderer::applyCommand(
         break;
     case AudioParameter::TrackMute:
         mixerSettings.muted = command.value == 1.0F;
+        break;
+    case AudioParameter::TrackReverbSend:
+        mixerSettings.reverbSend = command.value;
+        break;
+    case AudioParameter::TrackDelaySend:
+        mixerSettings.delaySend = command.value;
         break;
     case AudioParameter::TrackAttack:
         envelopeSettings_[track].attackSeconds = command.value;
@@ -188,6 +206,9 @@ bool SamplerMixerRenderer::applyCommand(
         return syncSynthVoice(track);
     case AudioParameter::TrackSynthColor:
         synthSettings_[track].color = command.value;
+        return syncSynthVoice(track);
+    case AudioParameter::TrackSynthEngineType:
+        synthSettings_[track].engineType = static_cast<SynthEngineType>(static_cast<int>(command.value));
         return syncSynthVoice(track);
     case AudioParameter::DelayTimeMs:
     case AudioParameter::DelayFeedback:
@@ -274,15 +295,26 @@ bool SamplerMixerRenderer::render(float* interleavedStereo,
     }
 
     const StereoOutputBuffer output{outputLeft_.data(), outputRight_.data()};
+    const SendBuffers sends{reverbSendBuffer_.data(), delaySendBuffer_.data()};
     if (!mixer_.processBlock(inputs_, settings_, masterVolumePercent_,
-                             sampleRate, output, frameCount)) {
+                             sampleRate, output, frameCount, &sends)) {
         return false;
     }
 
+    // Effect sends are processed 100% wet and summed with the dry master.
+    reverbEffect_.processSendStereo(reverbSendBuffer_.data(), frameCount,
+                                    sampleRate);
+    delaySendEffect_.processStereo(delaySendBuffer_.data(), frameCount,
+                                   sampleRate);
+
     for (std::uint32_t frame = 0; frame < frameCount; ++frame) {
         const auto outputFrame = outputOffset + frame;
-        interleavedStereo[outputFrame * 2] = outputLeft_[frame];
-        interleavedStereo[outputFrame * 2 + 1] = outputRight_[frame];
+        interleavedStereo[outputFrame * 2] =
+            outputLeft_[frame] + reverbSendBuffer_[frame * 2] +
+            delaySendBuffer_[frame * 2];
+        interleavedStereo[outputFrame * 2 + 1] =
+            outputRight_[frame] + reverbSendBuffer_[frame * 2 + 1] +
+            delaySendBuffer_[frame * 2 + 1];
     }
     delayEffect_.processStereo(
         interleavedStereo + outputOffset * 2, frameCount, sampleRate);

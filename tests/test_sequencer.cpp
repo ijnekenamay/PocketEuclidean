@@ -3,9 +3,11 @@
 #include "audio/BasicVaVoice.h"
 #include "audio/Mixer.h"
 #include "audio/OnePoleLowPass.h"
+#include "audio/ReverbEffect.h"
 #include "audio/SampleCache.h"
 #include "audio/SamplerMixerRenderer.h"
 #include "audio/SamplerVoicePool.h"
+#include "audio/SelectableSynthVoice.h"
 #include "audio/WavDecoder.h"
 #include "sequencer/Modulation.h"
 #include "sequencer/Sequencer.h"
@@ -313,6 +315,25 @@ void testLfoModulationAndDeterminism() {
                clamped->fill >= 1 && clamped->fill <= clamped->length &&
                clamped->offset <= 31,
            "effective rhythm values stay inside valid bounds");
+    const auto shown = engine.display(0);
+    expect(std::abs(shown.phase - 0.0625) < 1.0e-9 &&
+               std::abs(shown.value - std::sin(2.0 * 3.14159265358979323846 *
+                                                0.0625)) < 1.0e-9,
+           "display exposes the LFO phase and waveform the audio thread used");
+    expect(engine.display(pocket::TrackCount).phase == 0.0,
+           "display rejects out-of-range tracks without touching state");
+
+    pocket::Sequencer sequencer;
+    pocket::LfoConfig sequencerLfo = config;
+    sequencerLfo.destination = pocket::ModulationDestination::Length;
+    sequencer.setLfo(0, sequencerLfo);
+    sequencer.start();
+    const auto beforeTick = sequencer.lfoDisplay(0);
+    (void)sequencer.tick();
+    const auto afterTick = sequencer.lfoDisplay(0);
+    expect(afterTick.phase > beforeTick.phase &&
+               std::abs(afterTick.phase - 0.03125) < 1.0e-9,
+           "sequencer exposes the live LFO phase for the UI after a tick");
 
     pocket::LfoConfig invalid = config;
     invalid.rateHz = 100.0;
@@ -659,9 +680,18 @@ void testTrackMixerSettingsAndMeters() {
            "reject pan assignment outside the track range");
     sequencer.setVolume(0, 64);
     sequencer.setMuted(0, true);
+    expect(sequencer.setReverbSend(0, 0.35F) &&
+               sequencer.setDelaySend(0, 0.60F),
+           "set track effect send levels");
+    expect(!sequencer.setReverbSend(0, -0.01F) &&
+               !sequencer.setReverbSend(0, 1.01F) &&
+               !sequencer.setDelaySend(TrackCount, 0.5F),
+           "reject effect send levels outside the normalized range");
     const auto mixerSettings = audio::Mixer::settingsForTrack(sequencer.track(0));
     expect(mixerSettings.volumePercent == 64 && mixerSettings.pan == 0.0F &&
-               mixerSettings.muted,
+               mixerSettings.muted &&
+               mixerSettings.reverbSend == 0.35F &&
+               mixerSettings.delaySend == 0.60F,
            "mixer adapter forwards per-track project settings to audio processing");
 
     const project::ProjectData project;
@@ -712,6 +742,24 @@ void testAudioMixerProcessingAndMeterBridge() {
     expect(mixer.meters().track(0) > 0.0F &&
                mixer.meters().master() > 0.0F,
            "audio-thread peak values are published to atomic UI-readable meters");
+
+    settings[0] = {};
+    settings[0].reverbSend = 1.0F;
+    settings[0].delaySend = 0.5F;
+    std::array<float, 2048> reverbSend{};
+    std::array<float, 2048> delaySend{};
+    const SendBuffers sends{reverbSend.data(), delaySend.data()};
+    expect(mixer.processBlock(inputs, settings, 100, 48000, output,
+                              outputLeft.size(), &sends),
+           "mixer writes post-fader send buses");
+    expect(reverbSend[2046] > 0.0F && delaySend[2046] > 0.0F &&
+               std::abs(reverbSend[2046] - 2.0F * delaySend[2046]) < 1.0e-3F,
+           "send bus levels follow their per-track amounts without changing dry audio");
+    settings[0].reverbSend = 1.5F;
+    expect(!mixer.processBlock(inputs, settings, 100, 48000, output,
+                               outputLeft.size(), &sends),
+           "mixer rejects out-of-range send levels");
+    settings[0] = {};
 
     Mixer silentMixer;
     expect(silentMixer.processBlock(inputs, settings, 0, 48000, output, 16),
@@ -972,6 +1020,85 @@ void testBasicVaVoice() {
            "basic VA note-off immediately silences oscillator output");
 }
 
+void testSelectableSynthVoice() {
+    using namespace pocket;
+    using namespace pocket::audio;
+
+    SelectableSynthVoice voice;
+    SynthParameters parameters;
+    parameters.pitchHz = 220.0F;
+    parameters.level = 0.8F;
+    parameters.timbre = 0.6F;
+    parameters.color = 0.6F;
+    parameters.engine = SynthEngineType::BasicVa;
+    expect(voice.setParameters(parameters) &&
+               voice.engineType() == SynthEngineType::BasicVa,
+           "selectable voice accepts the basic engine parameter set");
+
+    std::array<float, 256> output{};
+    expect(voice.noteOn(0.8F) &&
+               voice.render(output.data(), output.size(), 48000),
+           "selectable voice renders the basic engine");
+    voice.noteOff();
+
+    for (int engine = 0; engine < 16; ++engine) {
+        parameters.morph = static_cast<float>(engine) / 15.0F;
+        parameters.engine = SynthEngineType::Plaits;
+        if (!voice.setParameters(parameters) || !voice.noteOn(1.0F)) {
+            expect(false, "Plaits engine accepts parameters and triggers");
+            break;
+        }
+        bool audible = false;
+        bool bounded = true;
+        for (std::size_t frame = 0; frame < output.size(); ++frame) {
+            output[frame] = 0.0F;
+        }
+        if (!voice.render(output.data(), output.size(), 48000)) {
+            expect(false, "Plaits engine renders a mono block");
+            break;
+        }
+        for (const auto sample : output) {
+            audible = audible || std::abs(sample) > 1.0e-6F;
+            bounded = bounded && std::isfinite(sample) &&
+                      std::abs(sample) <= 1.0F;
+        }
+        expect(audible && bounded,
+               "Plaits engine " + std::to_string(engine) +
+                   " is audible, finite, and bounded");
+        voice.noteOff();
+    }
+}
+
+void testSynthEngineParameterRouting() {
+    using namespace pocket;
+    using namespace pocket::audio;
+
+    Sequencer sequencer;
+    SamplerVoicePool samplerVoices;
+    SynthVoiceRack rack;
+    std::array<SelectableSynthVoice, TrackCount> voices{};
+    SynthParameters parameters;
+    parameters.level = 0.5F;
+    for (std::size_t track = 0; track < voices.size(); ++track) {
+        expect(rack.configure(track, &voices[track], parameters),
+               "prepare selectable voice for each track");
+    }
+    Mixer mixer;
+    SamplerMixerRenderer renderer(sequencer, samplerVoices, rack, mixer, 100);
+    expect(renderer.applyCommand(
+               {AudioParameter::TrackSynthEngineType, 0, 1.0F}, 48000),
+           "engine type command is accepted by the renderer");
+    expect(rack.parameters(0).engine == SynthEngineType::Plaits,
+           "engine type command switches the rack voice to Plaits");
+    expect(renderer.applyCommand(
+               {AudioParameter::TrackSynthEngineType, 0, 0.0F}, 48000) &&
+               rack.parameters(0).engine == SynthEngineType::BasicVa,
+           "engine type command switches the rack voice back to BasicVA");
+    expect(!renderer.applyCommand(
+               {AudioParameter::TrackSynthEngineType, 0, 2.0F}, 48000),
+           "engine type command rejects out-of-range values");
+}
+
 void testOnePoleLowPass() {
     using namespace pocket::audio;
     OnePoleLowPass filter;
@@ -1020,6 +1147,8 @@ void testAudioParameterQueue() {
            "audio parameter queue exposes lock-free preflight state");
     expect(!queue.push({AudioParameter::TrackPan, 0, 1.1F}) &&
                !queue.push({AudioParameter::TrackDecay, 0, 0.0F}) &&
+               !queue.push({AudioParameter::TrackReverbSend, 0, 1.1F}) &&
+               !queue.push({AudioParameter::TrackDelaySend, 0, -0.1F}) &&
                !queue.push({AudioParameter::TrackVolume, 8, 50.0F}),
            "audio parameter queue rejects invalid values and track indices");
 
@@ -1058,6 +1187,12 @@ void testSequencerCommandSync() {
     ui.setMuted(3, true);
     ui.setVolume(4, 55);
     ui.setPan(4, -0.5F);
+    ui.setReverbSend(6, 0.4F);
+    ui.setDelaySend(7, 0.7F);
+    auto synth = ui.track(5).synth;
+    synth.engineType = SynthEngineType::Plaits;
+    synth.morph = 0.75F;
+    ui.setSynth(5, synth);
     ui.setTempo(140.0);
     ui.start();
     sync.sync(ui);
@@ -1071,6 +1206,11 @@ void testSequencerCommandSync() {
                audioSide.track(2).rhythm.offset == 1 &&
                audioSide.track(3).muted && audioSide.track(4).volume == 55 &&
                audioSide.track(4).pan == -0.5F && audioSide.tempo() == 140.0 &&
+               audioSide.track(6).reverbSend == 0.4F &&
+               audioSide.track(7).delaySend == 0.7F &&
+               audioSide.track(5).synth.engineType ==
+                   SynthEngineType::Plaits &&
+               audioSide.track(5).synth.morph == 0.75F &&
                audioSide.isPlaying(),
            "synced commands reproduce UI edits on the audio-side sequencer");
 
@@ -1773,6 +1913,10 @@ void testProjectStoreRoundTrip() {
     source.setPan(4, -0.25F);
     source.setEnvelope(1, {0.01F, 1.5F});
     source.setFilter(5, {true, 3000.0F});
+    auto synthSettings = source.track(5).synth;
+    synthSettings.engineType = SynthEngineType::Plaits;
+    synthSettings.pitchHz = 330.0F;
+    expect(source.setSynth(5, synthSettings), "test synth settings are valid");
     LfoConfig lfo;
     lfo.enabled = true;
     lfo.waveform = LfoWaveform::SawDown;
@@ -1787,6 +1931,8 @@ void testProjectStoreRoundTrip() {
     jitter.useCustomSeed = true;
     jitter.randomSeed = 4242;
     source.setJitter(7, jitter);
+    source.setReverbSend(3, 0.45F);
+    source.setDelaySend(3, 0.65F);
 
     const auto original = project::captureProject(source);
     const auto text = project::serializeProject(original);
@@ -1800,10 +1946,16 @@ void testProjectStoreRoundTrip() {
     expect(restored.tempo() == 137.5, "tempo restored");
     expect(restored.track(2).muted, "mute restored");
     expect(restored.track(3).volume == 64, "volume restored");
+    expect(restored.track(3).reverbSend == 0.45F &&
+               restored.track(3).delaySend == 0.65F,
+           "effect sends restored");
     expect(restored.track(4).pan == -0.25F, "pan restored");
     expect(restored.track(1).envelope.decaySeconds == 1.5F, "envelope restored");
     expect(restored.track(5).filter.enabled && restored.track(5).filter.cutoffHz == 3000.0F,
            "filter restored");
+    expect(restored.track(5).synth.engineType == SynthEngineType::Plaits &&
+               restored.track(5).synth.pitchHz == 330.0F,
+           "synth engine type and parameters restored");
     expect(restored.track(6).lfos[0].waveform == LfoWaveform::SawDown &&
                restored.track(6).lfos[0].amount == -3 &&
                restored.track(6).lfos[0].destination == ModulationDestination::Fill,
@@ -1829,6 +1981,30 @@ void testProjectStoreRoundTrip() {
                                   untouched),
            "reject out-of-range enum");
     expect(untouched.tempoBpm == 99.0, "failed parse leaves output untouched");
+
+    project::ProjectData legacy;
+    expect(project::parseProject(
+               "PocketEuclideanProject\n"
+               "version 6\n"
+               "tempo 120\n"
+               "track.0.synth 110 0.5 0.4 0.3\n",
+               legacy, &error),
+           "version 6 project without an engine type loads: " + error);
+    expect(legacy.tracks[0].synth.engineType == SynthEngineType::BasicVa &&
+               legacy.tracks[0].synth.pitchHz == 110.0F &&
+               legacy.tracks[0].synth.morph == 0.5F &&
+               legacy.tracks[0].synth.timbre == 0.4F &&
+               legacy.tracks[0].synth.color == 0.3F,
+           "legacy synth line migrates to BasicVA with stored parameters");
+    expect(legacy.tracks[0].reverbSend == 0.0F &&
+               legacy.tracks[0].delaySend == 0.0F,
+           "version 6 projects load with zero effect sends");
+    expect(!project::parseProject(
+               "PocketEuclideanProject\n"
+               "version 7\n"
+               "track.0.synth 2 110 0.5 0.4 0.3\n",
+               untouched),
+           "version 7 rejects an out-of-range engine type");
 
     project::ProjectData invalid = original;
     invalid.tracks[0].rhythm = {16, 0, 0};
@@ -1894,6 +2070,8 @@ void testProjectSnapshotCoordinator() {
     for (std::size_t i = 0; i < pocket::TrackCount; ++i) {
         shadow[i].volume = static_cast<std::uint8_t>(30 + i * 8);
         shadow[i].pan = -0.7F + static_cast<float>(i) * 0.2F;
+        shadow[i].reverbSend = 0.05F + static_cast<float>(i) * 0.05F;
+        shadow[i].delaySend = 0.10F + static_cast<float>(i) * 0.04F;
         shadow[i].muted = (i % 2 == 1);
         shadow[i].envelope.attackSeconds = 0.05F + static_cast<float>(i) * 0.01F;
         shadow[i].envelope.decaySeconds = 0.5F + static_cast<float>(i) * 0.1F;
@@ -1914,6 +2092,10 @@ void testProjectSnapshotCoordinator() {
         const auto& t = project.tracks[i];
         expect(t.volume == shadow[i].volume, "track volume matches UI shadow");
         expect(t.pan == shadow[i].pan, "track pan matches UI shadow");
+        expect(t.reverbSend == shadow[i].reverbSend,
+               "track reverb send matches UI shadow");
+        expect(t.delaySend == shadow[i].delaySend,
+               "track delay send matches UI shadow");
         expect(t.muted == shadow[i].muted, "track muted matches UI shadow");
         expect(t.envelope.attackSeconds == shadow[i].envelope.attackSeconds, "track attack matches shadow");
         expect(t.envelope.decaySeconds == shadow[i].envelope.decaySeconds, "track decay matches shadow");
@@ -1927,6 +2109,9 @@ void testProjectSnapshotCoordinator() {
     expect(pocket::project::parseProject(serialized, parsed, &err), "parsed serialized snapshot");
     expect(parsed.effects.delayMilliseconds == 350, "parsed fx delay time");
     expect(parsed.tracks[0].volume == shadow[0].volume, "parsed shadow track 0 volume");
+    expect(parsed.tracks[0].reverbSend == shadow[0].reverbSend &&
+               parsed.tracks[7].delaySend == shadow[7].delaySend,
+           "parsed v8 project preserves effect sends");
 }
 
 void testSettingsStoreMigration() {
@@ -2004,6 +2189,38 @@ void testDelayEffect() {
     expect(stereo[0] == 0.8F, "mix 0 leaves input untouched");
 }
 
+void testReverbEffect() {
+    std::cout << "testReverbEffect...\n";
+    using namespace pocket::audio;
+    ReverbEffect reverb;
+    expect(reverb.isRealtimeSafe(), "reverb is realtime safe");
+
+    constexpr std::uint32_t Rate = 48000;
+    std::vector<float> stereo(4800 * 2, 0.0F);
+    stereo[0] = 1.0F;
+    stereo[1] = 1.0F;
+    reverb.processSendStereo(stereo.data(), 4800, Rate);
+
+    bool hasTail = false;
+    bool finite = true;
+    for (std::size_t i = 1; i < stereo.size(); ++i) {
+        hasTail = hasTail || std::abs(stereo[i]) > 1.0e-6F;
+        finite = finite && std::isfinite(stereo[i]);
+    }
+    expect(hasTail && finite, "reverb produces a finite wet tail");
+    expect(std::abs(stereo[0]) < 0.01F,
+           "reverb send bus is processed fully wet");
+
+    reverb.reset();
+    std::vector<float> silence(512 * 2, 0.0F);
+    reverb.processSendStereo(silence.data(), 512, Rate);
+    bool quiet = true;
+    for (const float sample : silence) {
+        quiet = quiet && std::abs(sample) < 1.0e-6F;
+    }
+    expect(quiet, "resetting the reverb clears its state");
+}
+
 } // namespace
 
 int main() {
@@ -2011,6 +2228,7 @@ int main() {
     testSettingsStoreMigration();
     testProjectSnapshotCoordinator();
     testDelayEffect();
+    testReverbEffect();
     testProjectStoreRoundTrip();
     testPulseCountAndRotation();
     testEvenDistribution();
@@ -2026,6 +2244,8 @@ int main() {
     testSamplerVoicePool();
     testSynthVoiceRack();
     testBasicVaVoice();
+    testSelectableSynthVoice();
+    testSynthEngineParameterRouting();
     testOnePoleLowPass();
     testAudioParameterQueue();
     testSequencerCommandSync();

@@ -2,7 +2,7 @@
 
 #include "app/SdlAudioBackend.h"
 #include "audio/AudioCallbackProcessor.h"
-#include "audio/BasicVaVoice.h"
+#include "audio/SelectableSynthVoice.h"
 #include "audio/AudioParameterQueue.h"
 #include "audio/Mixer.h"
 #include "audio/SampleCache.h"
@@ -44,8 +44,6 @@ public:
             voices_.assignSample(
                 track, {samples_[track].data(), samples_[track].size(),
                         SourceSampleRate});
-        }
-        for (std::size_t track = 0; track < TrackCount; ++track) {
             const auto& synth = uiSequencer.track(track).synth;
             audio::SynthParameters params;
             params.pitchHz = synth.pitchHz;
@@ -53,15 +51,21 @@ public:
             params.timbre = synth.timbre;
             params.color = synth.color;
             params.level = 0.7F;
+            params.engine = synth.engineType;
             synthRack_.configure(track, &synthVoices_[track], params);
         }
         processor_.setParameterQueue(&queue_);
         processor_.setSequencerCommandQueue(&sequencerQueue_);
         processor_.setPlayheadMirror(&playheadMirror_);
+        processor_.setModulationMirror(&modulationMirror_);
     }
 
     ui::PlayheadMirror& playhead() noexcept { return playheadMirror_; }
     const ui::PlayheadMirror& playhead() const noexcept { return playheadMirror_; }
+    ui::ModulationMirror& modulation() noexcept { return modulationMirror_; }
+    const ui::ModulationMirror& modulation() const noexcept {
+        return modulationMirror_;
+    }
 
     // UI thread: forwards UI-side Sequencer edits to the audio thread's copy.
     void syncSequencer(const Sequencer& uiSequencer) {
@@ -151,6 +155,10 @@ public:
         return events_.droppedCount();
     }
 
+    SdlAudioBackend::TimingReport timingReport() const noexcept {
+        return backend_.timingReport();
+    }
+
     // Call from the UI thread only.
     void updateLights() {
         lights_.consume(events_, backend_.framesRendered(),
@@ -181,10 +189,6 @@ public:
         }
         shownMasterPeak_ =
             std::max(mixer_.meters().master(), shownMasterPeak_ * Release);
-    }
-
-    SdlAudioBackend::TimingReport timingReport() const noexcept {
-        return backend_.timingReport();
     }
 
 private:
@@ -225,12 +229,13 @@ private:
     Sequencer audioSequencer_;
     audio::SequencerSync sync_;
     audio::SamplerVoicePool voices_;
-    std::array<audio::BasicVaVoice, TrackCount> synthVoices_{};
+    std::array<audio::SelectableSynthVoice, TrackCount> synthVoices_{};
     audio::SynthVoiceRack synthRack_{};
     audio::Mixer mixer_;
     audio::SamplerMixerRenderer renderer_;
     audio::AudioCallbackProcessor processor_;
     ui::PlayheadMirror playheadMirror_;
+    ui::ModulationMirror modulationMirror_;
     ui::StepLightBank lights_;
     std::vector<float> cacheStorage_ = std::vector<float>(8U * 1024U * 1024U);
     audio::SampleCache cache_{cacheStorage_.data(), cacheStorage_.size()};

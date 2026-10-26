@@ -20,8 +20,10 @@ add_library(pocket_euclidean
     src/audio/AudioCallbackProcessor.cpp
     src/audio/AudioParameterQueue.cpp
     src/audio/BasicVaVoice.cpp
+    src/audio/PlaitsVoice.cpp
     src/audio/Mixer.cpp
     src/audio/OnePoleLowPass.cpp
+    src/audio/ReverbEffect.cpp
     src/audio/SampleCache.cpp
     src/audio/SamplerMixerRenderer.cpp
     src/audio/SamplerVoicePool.cpp

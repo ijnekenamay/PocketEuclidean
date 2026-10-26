@@ -8,9 +8,9 @@ namespace pocket::ui {
 namespace {
 
 constexpr std::size_t EditFieldCount = 6;
-constexpr std::size_t SoundFieldCount = 11;
+constexpr std::size_t SoundFieldCount = 12;
 constexpr std::size_t ModulationFieldCount = 13;
-constexpr std::size_t MixerFieldCount = 4;
+constexpr std::size_t MixerFieldCount = 6;
 constexpr std::size_t SettingsCategoryCount = 7;
 constexpr std::size_t ProjectMenuItemCount = 5;
 
@@ -298,7 +298,8 @@ void UiController::dispatchSound(ActionEvent event) {
         changeSoundValue(1, event.fine || state_.fineAdjust);
         break;
     case Action::Confirm:
-        if (state_.soundField == SoundField::FilterEnabled) {
+        if (state_.soundField == SoundField::FilterEnabled ||
+            state_.soundField == SoundField::EngineType) {
             changeSoundValue(1, false);
         }
         break;
@@ -432,6 +433,28 @@ void UiController::changeSoundValue(int direction, bool fine) {
             value = synth.color;
         }
         if (!postAudioParameter(parameter, state_.selectedTrack, value)) {
+            state_.audioParameterRejected = true;
+            return;
+        }
+        if (audioParameterQueue_ != nullptr ||
+            sequencer_.setSynth(state_.selectedTrack, synth)) {
+            state_.modified = true;
+        }
+        return;
+    }
+    case SoundField::EngineType: {
+        // Discrete two-value field: Left/Right and Confirm all toggle it, like
+        // the filter-enable row, instead of clamping at an end value.
+        auto synth = track.synth;
+        const auto nextEngine =
+            synth.engineType == SynthEngineType::Plaits
+                ? SynthEngineType::BasicVa
+                : SynthEngineType::Plaits;
+        synth.engineType = nextEngine;
+        if (!postAudioParameter(audio::AudioParameter::TrackSynthEngineType,
+                                state_.selectedTrack,
+                                nextEngine == SynthEngineType::Plaits ? 1.0F
+                                                                      : 0.0F)) {
             state_.audioParameterRejected = true;
             return;
         }
@@ -709,6 +732,29 @@ void UiController::dispatchMixer(ActionEvent event) {
             }
             state_.modified = true;
             break;
+        case MixerField::ReverbSend:
+        case MixerField::DelaySend: {
+            const bool reverb = state_.mixerField == MixerField::ReverbSend;
+            const float current = reverb ? track.reverbSend : track.delaySend;
+            const float step = fine ? 0.01F : 0.05F;
+            const float value = std::clamp(current + direction * step, 0.0F, 1.0F);
+            if (!postAudioParameter(
+                    reverb ? audio::AudioParameter::TrackReverbSend
+                           : audio::AudioParameter::TrackDelaySend,
+                    state_.selectedTrack, value)) {
+                state_.audioParameterRejected = true;
+                break;
+            }
+            if (audioParameterQueue_ != nullptr) {
+                state_.modified = true;
+            } else if (reverb ? sequencer_.setReverbSend(state_.selectedTrack,
+                                                         value)
+                              : sequencer_.setDelaySend(state_.selectedTrack,
+                                                        value)) {
+                state_.modified = true;
+            }
+            break;
+        }
         case MixerField::MasterVolume: {
             const int step = fine ? 1 : 5;
             const int volume =
@@ -909,8 +955,8 @@ TrackAudioSettings UiController::audioSettings(std::size_t track) const noexcept
         return state_.audioTrackSettings[track];
     }
     const auto& source = sequencer_.track(track);
-    return {source.volume, source.pan, source.muted, source.envelope,
-            source.filter, source.synth};
+    return {source.volume, source.pan, source.reverbSend, source.delaySend,
+            source.muted, source.envelope, source.filter, source.synth};
 }
 
 bool UiController::postAudioParameter(audio::AudioParameter parameter,
@@ -934,6 +980,12 @@ bool UiController::postAudioParameter(audio::AudioParameter parameter,
         break;
     case audio::AudioParameter::TrackPan:
         settings.pan = value;
+        break;
+    case audio::AudioParameter::TrackReverbSend:
+        settings.reverbSend = value;
+        break;
+    case audio::AudioParameter::TrackDelaySend:
+        settings.delaySend = value;
         break;
     case audio::AudioParameter::TrackMute:
         settings.muted = value == 1.0F;
@@ -961,6 +1013,9 @@ bool UiController::postAudioParameter(audio::AudioParameter parameter,
         break;
     case audio::AudioParameter::TrackSynthColor:
         settings.synth.color = value;
+        break;
+    case audio::AudioParameter::TrackSynthEngineType:
+        settings.synth.engineType = static_cast<SynthEngineType>(static_cast<int>(value));
         break;
     case audio::AudioParameter::DelayTimeMs:
     case audio::AudioParameter::DelayFeedback:

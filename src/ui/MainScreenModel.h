@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sequencer/Sequencer.h"
+#include "ui/ModulationMirror.h"
 
 #include <array>
 #include <cstddef>
@@ -26,6 +27,14 @@ struct MainScreenSnapshot {
     bool playing = false;
 };
 
+// Optional live overlay: while the audio thread is playing, the UI-side
+// Sequencer keeps base rhythm values, so the effective (modulated) rhythm must
+// come from the audio mirror instead.
+struct MainScreenLiveModulation {
+    const ModulationMirror* mirror = nullptr;
+    bool active = false;
+};
+
 bool makeMainScreenSnapshot(const Sequencer& sequencer,
                             std::size_t selectedTrack,
                             MainScreenSnapshot& snapshot);
@@ -34,6 +43,13 @@ bool makeMainScreenSnapshot(
     const Sequencer& sequencer,
     std::size_t selectedTrack,
     const std::array<TrackAudioSettings, TrackCount>& audioTrackSettings,
+    MainScreenSnapshot& snapshot);
+
+bool makeMainScreenSnapshot(
+    const Sequencer& sequencer,
+    std::size_t selectedTrack,
+    const std::array<TrackAudioSettings, TrackCount>& audioTrackSettings,
+    const MainScreenLiveModulation& live,
     MainScreenSnapshot& snapshot);
 
 } // namespace pocket::ui

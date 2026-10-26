@@ -51,6 +51,15 @@ commands for a backend to consume in order. The next-step marker is not a
 trigger timestamp; the snapshot, layout, and draw list contain no SDL types,
 rendered text, or trigger-light timestamps.
 
+While the audio device is running, the UI-side `Sequencer` does not advance and
+therefore keeps base (unmodulated) rhythm values. `ui::PlayheadMirror` and
+`ui::ModulationMirror` publish the audio thread's per-track position, effective
+rhythm, LFO phase, and waveform value through lock-free atomics, newest value
+wins. `makeMainScreenSnapshot()` accepts an optional live overlay so MAIN, EDIT,
+and MODULATION show the same movement the audio thread is using without reading
+mutable sequencer state across threads. Stopping playback simply disables the
+overlay; the mirrors are never required for correctness.
+
 `TickResult` carries each track's step position at the moment that tick was
 evaluated. `ui::StepTriggerEventQueue` is a fixed-capacity, single-producer /
 single-consumer handoff for copying trigger masks, step positions, master tick
@@ -174,8 +183,9 @@ sub-tick scheduling is claimed by this core.
 
 ## Mixer, gain staging, and meters
 
-Each project track stores volume (0–100%) and normalized pan (-1.0 left,
-0.0 center, +1.0 right), along with mute. Mono inputs use equal-power panning;
+Each project track stores volume (0–100%), normalized pan (-1.0 left,
+0.0 center, +1.0 right), mute, and normalized reverb/delay send levels.
+Mono inputs use equal-power panning;
 stereo inputs use balance panning to preserve their stereo image. Volume is
 mapped quadratically from the UI range to linear gain, then smoothed over 5 ms
 to avoid clicks. Track and master gain smoothing starts at silence and ramps
@@ -192,7 +202,12 @@ cost still require verification on each supported platform. Per-track mixer valu
 master volume is a device/global preference in versioned system audio
 settings, so changing projects does not change the listening level. Meter
 values and runtime smoothing state are not persisted.
-The MIXER controller edits track volume/pan/mute and global master volume.
+The MIXER controller edits track volume/pan/mute, per-track reverb and delay
+sends, and global master volume. The send taps are post-fader: each track
+contributes `post-fader signal × send level` to a stereo send bus. The reverb
+bus runs through `ReverbEffect` (an allocation-free Schroeder network) and the
+delay send runs through a second `DelayEffect` forced to 100% wet; both wet
+signals are summed with the dry master before the global delay.
 Attach one `audio::AudioParameterQueue` to both `ui::UiController` and
 `audio::AudioCallbackProcessor` to transfer supported live changes without
 sharing those mutable audio settings with the callback. The fixed-capacity
@@ -293,9 +308,30 @@ caller-owned buffers only; the renderer's shared per-track VCA shapes its
 output. This is a baseline for integration and profiling; saw/pulse waveforms
 are not band-limited, so this prototype may alias and is not a final
 sound-quality claim, Braids/Plaits emulation, or claim of target-device
-suitability. Adding a third-party engine requires per-file license review and
-cross-platform build/resource-generation work, followed by measured
-eight-track callback profiling on target hardware.
+suitability.
+
+`PlaitsVoice` is a MIT-licensed multi-engine implementation inspired by
+Mutable Instruments Plaits. It provides 16 synthesis engines (Virtual Analog,
+Wavetable, FM, Additive, Chord, Speech, Bass Drum, Snare Drum, Hi-Hat, Granular,
+Karplus-Strong String, Modal, Noise, Particle, Phase Distortion, Wave Shaping)
+with engine selection via the morph parameter. Each engine maps the common
+synth parameters (pitch, timbre, morph, color, level) to engine-specific
+controls. All oscillator, noise, delay-line, and envelope state is per voice, so
+tracks never share DSP state; envelopes use time since note-on rather than
+oscillator phase.
+
+`SelectableSynthVoice` is the per-track backend bound into `SynthVoiceRack`
+once at setup. It owns one `BasicVaVoice` and one `PlaitsVoice` and dispatches
+to the backend named by `SynthParameters::engine`. Engine changes therefore
+travel through the existing `AudioParameter::TrackSynthEngineType` queue entry
+on the audio thread instead of reconfiguring the rack from the UI thread while
+the callback is running. Both backends implement `ISynthVoice` and are
+selectable per-track via `TrackSynthSettings::engineType` (saved in project
+format v8; v7 files load with the stored engine, and v6 files load with
+`BasicVa` as the default, without effect sends). Adding a third-party
+engine requires per-file license review and cross-platform
+build/resource-generation work, followed by measured eight-track callback
+profiling on target hardware.
 
 ## Platform ports and future MIDI
 

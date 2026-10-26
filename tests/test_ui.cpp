@@ -2,6 +2,7 @@
 #include "ui/MainScreenDrawList.h"
 #include "ui/MainScreenLayout.h"
 #include "ui/MainScreenModel.h"
+#include "ui/ModulationMirror.h"
 #include "ui/StepLightBank.h"
 #include "ui/StepLightEnvelope.h"
 #include "ui/StepTriggerEventQueue.h"
@@ -43,6 +44,18 @@ void testKeyboardAndControllerMappings() {
            "OS key repeat cannot repeat transport toggles");
     expect(InputMapping::keyboard(KeyboardKey::Down, false, true).has_value(),
            "directional key repeat is allowed");
+    expect(InputMapping::shouldDispatch(Action::PlayStop, true) &&
+               !InputMapping::shouldDispatch(Action::PlayStop, false),
+           "transport dispatches on the press edge only");
+    expect(!InputMapping::shouldDispatch(Action::PlayStop, true, true),
+           "OS key repeat cannot dispatch transport");
+    expect(!InputMapping::shouldDispatch(Action::Confirm, false) &&
+               !InputMapping::shouldDispatch(Action::Back, false) &&
+               !InputMapping::shouldDispatch(Action::ScreenNext, false),
+           "edge-triggered actions ignore the release edge");
+    expect(InputMapping::shouldDispatch(Action::ValueFine, true) &&
+               InputMapping::shouldDispatch(Action::ValueFine, false),
+           "fine modifier tracks both press and release");
     expect(InputMapping::controller(ControllerControl::R1)->action ==
                Action::TrackNext,
            "controller shoulder maps to next track");
@@ -129,6 +142,13 @@ void testInputRepeater() {
                !nearTimestampLimit.poll(maxTimestamp - 1) &&
                nearTimestampLimit.poll(maxTimestamp).has_value(),
            "repeat deadline addition saturates instead of wrapping timestamp");
+
+    InputRepeater cleared(100, 50, 25, 200);
+    expect(cleared.press(InputSource::Keyboard, 3, down, 0).has_value(),
+           "direction is held before focus loss");
+    cleared.clear();
+    expect(!cleared.poll(1000) && !cleared.poll(2000),
+           "clearing held controls stops repeats after focus loss");
 }
 
 void testStepLightEnvelope() {
@@ -403,6 +423,58 @@ void testMainScreenSnapshot() {
            "invalid selected track is rejected without partially changing the snapshot");
 }
 
+void testLiveModulationOverlay() {
+    using namespace pocket;
+
+    ui::ModulationMirror mirror;
+    expect(mirror.isLockFree(), "modulation mirror uses lock-free atomics");
+    expect(!mirror.read(0).valid,
+           "modulation mirror reports no data before the first publish");
+
+    mirror.publish(0, {12, 5, 3}, 0.25F, -0.5F);
+    const auto live = mirror.read(0);
+    expect(live.valid && live.rhythm.length == 12 && live.rhythm.fill == 5 &&
+               live.rhythm.offset == 3 && live.lfoPhase == 0.25F &&
+               live.lfoValue == -0.5F,
+           "modulation mirror round-trips rhythm and LFO state");
+
+    mirror.publish(ui::ModulationMirror::Tracks, {8, 3, 0}, 1.0F, 1.0F);
+    expect(!mirror.read(ui::ModulationMirror::Tracks).valid,
+           "modulation mirror ignores out-of-range tracks");
+
+    Sequencer sequencer;
+    expect(sequencer.setRhythm(0, {16, 4, 0}),
+           "configure base rhythm for the live overlay");
+    sequencer.start();
+    (void)sequencer.tick();
+
+    std::array<ui::TrackAudioSettings, TrackCount> audio{};
+    ui::MainScreenSnapshot snapshot;
+    ui::MainScreenLiveModulation overlay{&mirror, true};
+    expect(ui::makeMainScreenSnapshot(sequencer, 0, audio, overlay, snapshot) &&
+               snapshot.tracks[0].rhythm.length == 12 &&
+               snapshot.tracks[0].rhythm.fill == 5 &&
+               snapshot.tracks[0].rhythm.offset == 3,
+           "live overlay replaces the base rhythm with the audio-thread value");
+    std::size_t activeCount = 0;
+    for (std::uint8_t step = 0; step < snapshot.tracks[0].rhythm.length;
+         ++step) {
+        activeCount += snapshot.tracks[0].activeSteps[step] ? 1U : 0U;
+    }
+    expect(activeCount == 5,
+           "live overlay recomputes active steps for the modulated rhythm");
+
+    overlay.active = false;
+    expect(ui::makeMainScreenSnapshot(sequencer, 0, audio, overlay, snapshot) &&
+               snapshot.tracks[0].rhythm.length == 16 &&
+               snapshot.tracks[0].rhythm.fill == 4,
+           "inactive overlay falls back to the UI-side rhythm");
+
+    mirror.reset();
+    expect(!mirror.read(0).valid,
+           "resetting the mirror clears the published state");
+}
+
 void testMainScreenLayout() {
     using namespace pocket;
 
@@ -589,6 +661,42 @@ void testTrackNavigationAndTransport() {
     expect(sequencer.track(0).muted, "selected track mute toggles");
 }
 
+void testSynthEngineSelection() {
+    using namespace pocket;
+    using namespace pocket::ui;
+
+    Sequencer sequencer;
+    audio::AudioParameterQueue queue;
+    UiController ui(sequencer);
+    ui.setAudioParameterQueue(&queue);
+    ui.dispatch({Action::ScreenNext}); // Edit
+    ui.dispatch({Action::ScreenNext}); // Sound
+    for (int i = 0; i < 4; ++i) {
+        ui.dispatch({Action::NavDown});
+    }
+    expect(ui.state().soundField == SoundField::EngineType,
+           "SOUND navigation reaches the engine type field");
+    expect(ui.effectiveTrackState(0).synth.engineType ==
+               SynthEngineType::BasicVa,
+           "engine field starts on BASIC-VA");
+
+    ui.dispatch({Action::NavRight});
+    expect(ui.effectiveTrackState(0).synth.engineType ==
+               SynthEngineType::Plaits,
+           "right selects the Plaits engine");
+    audio::AudioParameterCommand command;
+    expect(queue.pop(command) &&
+               command.parameter ==
+                   audio::AudioParameter::TrackSynthEngineType &&
+               command.track == 0 && command.value == 1.0F,
+           "engine change is published through the audio parameter queue");
+
+    ui.dispatch({Action::Confirm});
+    expect(ui.effectiveTrackState(0).synth.engineType ==
+               SynthEngineType::BasicVa,
+           "confirm toggles the discrete engine field back to BASIC-VA");
+}
+
 void testUiAudioParameterQueue() {
     using namespace pocket;
     using namespace pocket::ui;
@@ -711,6 +819,16 @@ void testScreensAndEditRanges() {
            "mixer mute shortcut suppresses the selected track");
     const auto mixerSettings = ui.systemSettings().audio.masterVolumePercent;
     ui.dispatch({Action::Confirm});
+    ui.dispatch({Action::Confirm});
+    ui.dispatch({Action::NavRight, true});
+    expect(sequencer.track(0).reverbSend > 0.0F &&
+               ui.state().mixerField == MixerField::ReverbSend,
+           "mixer adjusts the selected track reverb send");
+    ui.dispatch({Action::Confirm});
+    ui.dispatch({Action::NavRight, true});
+    expect(sequencer.track(0).delaySend > 0.0F &&
+               ui.state().mixerField == MixerField::DelaySend,
+           "mixer adjusts the selected track delay send");
     ui.dispatch({Action::Confirm});
     ui.dispatch({Action::NavLeft});
     expect(ui.systemSettings().audio.masterVolumePercent < mixerSettings,
@@ -983,7 +1101,7 @@ void testEffectiveTrackStateAndTempoControls() {
     synthDelayUi.setAudioParameterQueue(&synthDelayQueue);
     synthDelayUi.dispatch({Action::ScreenNext}); // Edit
     synthDelayUi.dispatch({Action::ScreenNext}); // Sound
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 5; ++i) {
         synthDelayUi.dispatch({Action::NavDown});
     }
     expect(synthDelayUi.state().soundField == SoundField::Pitch,
@@ -1032,9 +1150,11 @@ int main() {
     testStepLightBank();
     testThemeCatalogCycling();
     testMainScreenSnapshot();
+    testLiveModulationOverlay();
     testMainScreenLayout();
     testMainScreenDrawList();
     testTrackNavigationAndTransport();
+    testSynthEngineSelection();
     testUiAudioParameterQueue();
     testScreensAndEditRanges();
     testModalsAndFineMode();

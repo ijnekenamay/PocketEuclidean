@@ -95,13 +95,13 @@
 - **8トラックのシーケンサー状態:** 独立位置、リズム設定、ミュート、楽器種別、0–100 の音量値、テンポ値。
 - **ミキサーDSP:** 0–100%音量カーブ、正規化パン、Monoのequal-power / Stereoのbalance、5msゲインスムージング、トラック別加算ヘッドルーム、マスターsoft limiter、atomic peak meter出力。
 - **サンプルvoiceプールと再生経路:** 固定長32 voice、事前ロード済みmono PCM参照、サンプルレート変換の線形補間、0.25–4倍再生速度、古いvoiceからの決定的stealingを実装。`SamplerMixerRenderer`がティックのsample offsetでcallbackブロックを分割し、sampler voiceをMixer DSP・meter・limiterへ接続する。固定長64コマンドのSPSCキューで、音量／Pan／Mute／AD／filter／master volumeのUI値をcallback block境界で渡す基盤とUIコントローラー接続を追加。プロジェクトsnapshot統合、WAVキャッシュからのvoice割当、SDL音声デバイス接続、実機期限測定は未実装。
-- **シンセ音源の差し替え境界と軽量VA基準実装:** 固定8スロットの`SynthVoiceRack`と`ISynthVoice`契約に加え、外部依存のないモノフォニック`BasicVaVoice`を実装した。サイン近似／三角／鋸歯／pulse間のmorph、pulse幅timbre、簡易2次倍音colorを提供する。Attack/Decayはサンプラーとシンセ共通のトラック別VCAとして実装し、トラック別ローパスと合わせProjectData v6の設定モデルへ追加した（シリアライズは未実装）。SOUND状態コントローラーからAttack 1–250 ms、Decay 20 ms–4 s、ローパス有効化と100 Hz–20 kHz cutoffを変更できる。これはBraids／Plaits互換実装ではなく、音質と実機性能は未測定。CPU予算、Brick Pro deadline、8 voice負荷を実機で検証する。
+- **シンセ音源の差し替え境界と軽量VA基準実装:** 固定8スロットの`SynthVoiceRack`と`ISynthVoice`契約に加え、外部依存のないモノフォニック`BasicVaVoice`を実装した。サイン近似／三角／鋸歯／pulse間のmorph、pulse幅timbre、簡易2次倍音colorを提供する。Attack/Decayはサンプラーとシンセ共通のトラック別VCAとして実装し、トラック別ローパスと合わせProjectData v8の設定モデルへ追加した。SOUND状態コントローラーからAttack 1–250 ms、Decay 20 ms–4 s、ローパス有効化と100 Hz–20 kHz cutoffを変更できる。**Plaits風`PlaitsVoice`（16モデル）と、エンジン種別で両者を切り替える`SelectableSynthVoice`を追加した。エンジン切替は`TrackSynthEngineType`としてSPSCキュー経由で音声スレッドへ渡し、UIスレッドからラックを再構成しない。** これはBraids／Plaits互換実装ではなく、音質と実機性能は未測定。CPU予算、Brick Pro deadline、8 voice負荷を実機で検証する。
 - **WAVデコードとサンプルキャッシュ:** 有界RIFF/WAVE parserがPCM 8/16/24/32-bitとIEEE float32のmono/stereoを呼び出し側の固定バッファへmono floatでデコードする。`SampleCache`はcaller-owned arenaと固定8スロットmetadataで、各ファイルと合計のデコードPCMを64 MiB以内に制限する。first-fitで空き連続領域を使い、既存データを移動しない。PCM/float WAVEFORMATEXTENSIBLE、unknown padded chunks、不正／非有限／容量超過データを扱う。ファイルI/O、fragmentation時のユーザー向けエラー、プロジェクト参照保存、voiceとの安全なライフタイム接続は未実装。
-- **MIXER画面状態:** 8トラック選択、音量／パン／ミュート／マスター音量のキーボード・コントローラー操作。描画バックエンドは未実装。Master VolumeはGlobal SystemSettings、トラック値はProjectDataに保存する方針。
-- **トランスポートとティック:** 初期テンポ120 BPM、開始時の全トラック同期リセット、停止、位置リセット、共有マスター・ティック位置、サンプル数とサンプルレートに基づく16分音符スケジュール計算。コールバックへサンプルオフセットと全トラックのトリガー結果を渡す。120 BPM ではティック間隔125 ms。
+- **MIXER画面状態:** 8トラック選択、音量／パン／ミュート／リバーブセンド／ディレイセンド／マスター音量のキーボード・コントローラー操作。描画バックエンドは実装済み。Master VolumeはGlobal SystemSettings、トラック値とセンドはProjectData v8に保存する方針。
+- **トランスポートとティック:** 初期テンポ120 BPM、開始時の全トラック同期リセット、停止、位置リセット、共有マスター・ティック位置、サンプル数とサンプルレートに基づく16分音符スケジュール計算。START/STOPはトグルで、押下エッジのみ反応し、キーやボタンの離上では再実行しない。コールバックへサンプルオフセットと全トラックのトリガー結果を渡す。120 BPM ではティック間隔125 ms。
 - **プラットフォーム音声契約:** `IAudioBackend`は要求／取得音声仕様を分けたfloat stereo callback契約を持ち、コールバックへ単調な絶対開始フレームを渡す。取得仕様の範囲検証関数と、sample offsetでSequencerを進めて照明SPSCキューへ接続する`AudioCallbackProcessor`を追加。sampler/synth voiceはfixed buffers経由でMixerへ到達し、トラック別AD VCAと任意の一次ローパスを通る。リアルタイム対象パラメーターは固定長SPSCキューでUI側shadowからcallbackへ渡す。SDL2実装、実シンセDSP／delay effects、残りのSequencer／transportパラメーターの安全なライブ受け渡しは未実装。
 - **論理入力変換:** キーボードとSDL GameController論理操作を共通アクションへ変換する。固定長のコントローラープロファイルは割当変更とボタン無効化に対応し、未知値を拒否する。機種別プロファイルの選択・永続化とJoystick fallbackは未実装。
-- **入力リピート:** 押下直後の操作、初期遅延後の方向リピート、および長押し時の加速。最大32個の同時押下を独立追跡し、重複key-downで遅延をリセットしない。トグル系アクションを方向リピート対象から除外する。
+- **入力リピート:** 押下直後の操作、初期遅延後の方向リピート、および長押し時の加速。最大32個の同時押下を独立追跡し、重複key-downで遅延をリセットしない。トグル系アクションを方向リピート対象から除外する。**非リピート系アクションは押下エッジでのみ実行し、キー離上では再実行しない（`InputMapping::shouldDispatch`）。フォーカス喪失・最小化・デバイス切断時は保持リピートと修飾キー状態をクリアする。**
 - **UI 状態コントローラー:** MAIN / EDIT / SOUND / MIXER / MODULATION / SYSTEM の画面状態、トラック選択、基本的なフィールド編集、楽器選択、音量・リズム値、LFO/Jitter編集、SYSTEMカテゴリ選択、ヘルプ／プロジェクト等のモーダル状態。
 - **MAIN表示モデル／レイアウト／描画コマンド:** `MainScreenSnapshot`が有効パターン等を固定長データで提供し、`layoutMainScreen`が座標化、`buildMainScreenDrawList`が意味付きの固定長・メモリ確保なし描画コマンドを生成する。`TickResult`にティック時点の各トラックのステップ番号を追加し、容量32のSPSCキューで音声側からUIへ発音イベントを渡す。`AudioCallbackProcessor`から発音イベントをキューへ発行し、UI側の8×32固定長`StepLightBank`が絶対音声フレームから照明エンベロープを評価する。未来のイベントは時刻まで保留し、寿命を過ぎたイベントは破棄する。lock-free要件を満たさないターゲットではオーディオ開始を拒否する必要がある。SDL実描画と発音照明の画面反映は未実装。
 - **UI発音照明エンベロープ:** SDL2に依存しない`StepLightEnvelope`が単調時刻から照度を評価し、固定長`StepLightBank`が音声フレーム時刻付きイベントから8×32ステップの状態を更新する。Attack 18ms / Hold 25ms / Decay 170ms、再トリガー時は現在照度から滑らかに再上昇する。SDL描画、実オーディオコールバックとの接続、実機での視認性調整は未実装。
@@ -120,7 +120,7 @@
 - **MAIN画面のSDL描画:** 表示モデル・テーマ連動レイアウト・固定長描画コマンドはあるが、1024×768上の文字・背景・行・ステップバーの実描画は未実装。
 - **描画側イベント連携:** `AudioCallbackProcessor`から音声フレーム時刻付きイベントを有界SPSCキューへ発行し、ステップごとの照明状態へ渡す基盤を実装済み。実SDL音声デバイスへの接続、描画反映、実機での表示確認は未実装。
 - **オーディオ統合:** サンプルスケジューラー、sampler／軽量VA synth voice、Mixer DSP、発音イベントキューをつなぐプラットフォーム非依存経路は実装済み。実SDL音声デバイス、WAVキャッシュからのvoice設定、より高度なシンセDSP、effects、UIからの安全なパラメーター受け渡し、実機レイテンシー調整は未実装。アプリ側はSDL2 Audio APIを使い、Linux（Brick Pro / PortMaster）ではSDL2のALSAバックエンドを第一候補とする。対象のSDL2ビルド設定・ALSAデバイス・対応サンプルレート／バッファーは実機未確認。
-- **MIXER画面描画:** 8トラック一覧、フェーダー／パン／ミュート表示、ピークメーター描画とフォーカス案内。
+- **MIXER画面描画:** 8トラック一覧、フェーダー／パン／MUTEボタン／REV・DLYセンドバー／ピークメーター描画とフォーカス案内。センドはポストフェーダーで、専用リバーブ／ディレイバスへ送出する。
 - **楽器:** WAVファイルI/O／ProjectDataへのサンプル参照保存、軽量VAの実機計測・改善、Braids／Plaits候補の比較、より高度なフィルター／callback-safeな設定更新。
 - **エフェクト:** ディレイ、フィルター、エフェクトルーティング。
 - **プロジェクト管理:** バージョン付きシリアライズ、保存・読み込み、ファイル選択、上書き確認、未保存変更時の Save/Discard/Cancel 処理、サンプル欠落時の復旧。
@@ -175,7 +175,7 @@
 - MODULATION / SYSTEM 画面を描画し、SYSTEM内にクロック、MIDI、音声、
   入力、表示、保存、診断カテゴリを提示する。Project Menuとは分離する。
 - SYSTEM > Displayのテーマ選択操作を描画へ反映し、意味色4ロールに基づいて全画面を一括切替する。未知のテーマIDは明示的に無効として扱う。
-- MIXERに8トラックの音量、Pan、Mute、track/master peak meterを表示する。
+- MIXERに8トラックの音量、Pan、Mute、Reverb/Delayセンド、track/master peak meterを表示する。
 - ゲームパッドとキーボードから同一の UI ロジックが呼ばれることを検証する。
 
 **完了条件:** 6画面で状態を確認・操作でき、必要な基本操作がマウスなしで行える。Euclideanパターンが視覚上の主役で、選択・操作状態が装飾枠なしで分かり、発音照明が滑らかかつ描画フレームレート非依存である。1024×768のBrick Pro設計基準で可読性を確認する。
@@ -194,9 +194,9 @@
 
 ### Phase 5 — 音源・エフェクトと SOUND 画面
 
-- `ISynthVoice`、固定8スロットの`SynthVoiceRack`、軽量`BasicVaVoice`、サンプラー／シンセ共通AD VCA、トラック別ローパスは実装済み。これらをベースラインとして測定し、Braids／Plaits候補と同じ条件で比較する。外部実装を取り込む前に対象ファイル単位のライセンスを確認する。
+- `ISynthVoice`、固定8スロットの`SynthVoiceRack`、軽量`BasicVaVoice`、サンプラー／シンセ共通AD VCA、トラック別ローパスは実装済み。**Plaits風マルチエンジン実装 (`PlaitsVoice`) を追加済み（16エンジン: VA/WT/FM/Additive/Chord/Speech/BD/SD/HH/Grain/String/Modal/Noise/Particle/PD/WS）。** これらをベースラインとして測定し、Braids／Plaits候補と同じ条件で比較する。外部実装を取り込む前に対象ファイル単位のライセンスを確認する。
 - 8トラック同時発音のBrick Pro CPU時間・メモリー・callback期限を測り、予算を満たす最小構成を選定する。測定前にエンジン数や同時voice性能を保証しない。
-- SOUND画面のAD／filter操作状態と、そのaudio queue handoffは実装済み。音源パラメーターの操作・安全なhandoffを追加する。
+- SOUND画面のAD／filter操作状態と、そのaudio queue handoffは実装済み。音源パラメーターの操作・安全なhandoffを追加する。**シンセエンジンタイプ（BasicVA/Plaits）切替をSOUND画面に追加済み（プロジェクト保存・読み込み対応、形式v8）。**
 - ディレイと、既存の一次ローパスより高度なフィルター／採用する共有・トラック別ルーティングを実装する。
 - SOUND 画面で選択中の音源・エフェクトに関係する項目のみを編集可能にする。
 - 低負荷機器で CPU 使用率とオーディオ安定性を確認する。

@@ -1,11 +1,12 @@
 # UI controls and validation checklist
 
 The UI currently has a platform-independent logical input mapper and a
-testable screen-state controller. SDL keyboard/controller events should be
-translated to the enums in `src/ui/InputMapping.h`; screen behavior should
-dispatch only logical `ActionEvent` values. The six primary screens cycle
-MAIN → EDIT → SOUND → MIXER → MODULATION → SYSTEM. The SDL adapter and rendered
-screens are not implemented yet.
+testable screen-state controller. SDL keyboard/controller events are
+translated to the enums in `src/ui/InputMapping.h`; screen behavior dispatches
+only logical `ActionEvent` values. The six primary screens cycle
+MAIN → EDIT → SOUND → MIXER → MODULATION → SYSTEM. The SDL2 adapter and the
+six rendered screens live in `src/app/main.cpp`; this document remains the
+authoritative description of logical control behavior.
 
 Visual design requirements for the renderer are in
 [UI_DESIGN_POLICY.md](UI_DESIGN_POLICY.md). In particular, pattern-trigger
@@ -38,6 +39,15 @@ Repeated key-down events for an already-held control do not restart its delay.
 When full, a new directional press is still emitted once but is not held for
 repeat; release events only cancel the matching source/control pair.
 
+Edge-triggered actions (transport, confirm, back, mute, track/screen changes,
+project menu, help) fire on the press edge only. Key-up and button-up never
+apply them a second time; `InputMapping::shouldDispatch` centralizes that rule
+so a toggle cannot be applied twice by one physical press. The Shift modifier
+is the exception: both edges update fine-adjust state. When the window loses
+focus or is minimized, the adapter clears held repeats, the Shift modifier,
+the Select+Start quit combination, and analog trigger latches, because the
+matching release event may never arrive. Device disconnect does the same.
+
 ## Default logical controller mapping
 
 | SDL GameController logical control | Logical action |
@@ -62,29 +72,38 @@ persist raw SDL or joystick button numbers in the shared profile.
 ## Current UI state behavior
 
 - MAIN: Up/Down selects one of eight tracks with wraparound; Confirm opens
-  EDIT; Play/stop, mute, and primary-screen navigation are available. START
-  resets every track and the master clock to step zero; STOP halts the clock;
-  pressing START again resets and starts from step zero.
-  Pressing START while already playing leaves the current phase unchanged.
+  EDIT; Play/stop, mute, and primary-screen navigation are available.
+  START and Space are a toggle, not press-and-hold: the first press resets
+  every track and the master clock to step zero and starts playback; the next
+  press stops the clock. Releasing the key or button does nothing, and OS
+  key-repeat cannot toggle again.
 - EDIT: Up/Down moves through length, fill, offset, instrument, volume, and
   mute. Left/Right edits the focused field; length is 2–32, fill is
   1–length, offset is 0–31, and volume is 0–100. Reducing length clamps fill.
-- SOUND: Up/Down selects per-track Attack, Decay, Filter Enable, and Filter
-  Cutoff fields; Left/Right changes the selected value. Attack spans 1–250 ms
-  and Decay spans 20 ms–4 s. Coarse changes are 10 ms for Attack, 100 ms for
-  Decay, and 1000 Hz for cutoff; fine changes are 1 ms, 10 ms, and 100 Hz.
+- SOUND: Up/Down selects per-track Attack, Decay, Filter Enable, Filter
+  Cutoff, Synth Engine, Synth Pitch, Synth Morph, Synth Timbre, Synth Color,
+  Delay Time, Delay Feedback, and Delay Mix fields; Left/Right changes the
+  selected value. Attack spans 1–250 ms and Decay spans 20 ms–4 s. Coarse
+  changes are 10 ms for Attack, 100 ms for Decay, 10 Hz for synth pitch, and
+  1000 Hz for cutoff; fine changes are 1 ms, 10 ms, 1 Hz, and 100 Hz.
   Cutoff spans 100 Hz–20 kHz and is limited below Nyquist during rendering.
-  When an audio parameter queue is attached, supported edits are handed to the
-  audio callback at the next block boundary. If the bounded queue is full, the
-  edit is rejected and `UiState::audioParameterRejected` is set for the
-  frontend to report. `UiState::audioTrackSettings` retains the UI-side value
-  while the callback owns the runtime setting; project snapshot/save code must
-  include it. Back returns to EDIT. Instrument waveform, pitch, and effect
-  editing are not implemented yet.
+  Filter Enable and Synth Engine are discrete: Left/Right and Confirm toggle
+  them between OFF/ON and BASIC-VA/PLAITS. The Plaits engine scans its sixteen
+  models through Morph; both engines run through the same per-track AD VCA and
+  filter. When an audio parameter queue is attached, supported edits are handed
+  to the audio callback at the next block boundary. If the bounded queue is
+  full, the edit is rejected and `UiState::audioParameterRejected` is set for
+  the frontend to report. `UiState::audioTrackSettings` retains the UI-side
+  value while the callback owns the runtime setting; project snapshot/save
+  code must include it. Back returns to EDIT.
 - MIXER: Up/Down selects one of eight tracks. Confirm cycles Volume, Pan,
-  Mute, and Master Volume; Left/Right adjusts the focused value. The global
-  MuteToggle action remains a one-action shortcut. Track volume, pan, and mute
-  are project state; master volume is a global system audio preference.
+  Mute, Reverb Send, Delay Send, and Master Volume; Left/Right adjusts the
+  focused value. The MUTE button in each strip shows the current mute state.
+  The global MuteToggle action remains a one-action shortcut. Track volume, pan,
+  mute, and both effect sends are project state; master volume is a global
+  system audio preference. Reverb and delay sends are post-fader (after track
+  volume and pan) and are processed by dedicated effect buses before the
+  master output.
   Controller and keyboard inputs use the same logical actions. With an audio
   parameter queue attached, changes are applied by the audio thread at the
   next block boundary; queue-full edits are rejected and exposed through
@@ -112,7 +131,26 @@ persist raw SDL or joystick button numbers in the shared profile.
   implemented. Unsaved-change confirmation defaults to Cancel, and the UI
   does not clear its modified flag until the project layer reports success.
 
-## Manual test checklist for the future SDL adapter
+## Automated GUI checks
+
+`pocket_euclidean_app.exe --capture <file.bmp> --capture-delay <ms>` renders one
+frame and exits. `--inject-keys <spec>` pushes synthetic SDL key events into the
+normal event queue before that frame, so the real adapter code (including
+press/release edge handling) runs without a human at the keyboard. The spec is a
+comma-separated list of `key[:action]`, where key is `up`, `down`, `left`,
+`right`, `enter`, `escape`, `space`, `m`, `q`, `e`, `tab`, `pageup`, `pagedown`,
+`p`, `f1`, or `shift`, and action is `tap` (default), `down`, `up`, or `repeat`.
+Events fire 300 ms apart starting at 400 ms. Examples:
+
+- `--inject-keys space:tap` → header shows `PLAY` (one press starts).
+- `--inject-keys space:down,space:up` → header still shows `PLAY` (release does
+  nothing; this is the press-and-hold regression).
+- `--inject-keys space:tap,space:tap` → header shows `STOP` with a non-zero
+  master tick, proving the first press ran and the second stopped.
+- `--inject-keys space:down,space:repeat` → header still shows `PLAY` (OS
+  key-repeat cannot toggle transport twice).
+
+## Manual test checklist
 
 - [ ] Verify Brick Pro logical GameController mappings on the exact NextUI /
   PortMaster versions selected for release; verify other supported device
@@ -132,12 +170,18 @@ persist raw SDL or joystick button numbers in the shared profile.
   effective values clamp/quantize, and master transport phase is preserved.
 - [ ] Verify jitter Enable and Intensity are directly reachable in MODULATION,
   and that Off reproduces the stored Euclidean pattern exactly.
-- [ ] Navigate all eight mixer tracks; adjust volume/pan, toggle mute without
-  changing transport phase, and verify master volume persists across projects.
+- [ ] Navigate all eight mixer tracks; adjust volume/pan and reverb/delay
+  sends, toggle mute without changing transport phase, and verify master
+  volume persists across projects.
 - [ ] Verify mono equal-power and stereo balance panning, smooth gain changes,
   peak meter updates, and limiter behavior on the audio callback.
-- [ ] Start/stop using Start and Space; verify every start resets all tracks
-  together to step zero and repeated key-down does not toggle twice.
+- [ ] Start/stop using Start and Space; verify the first press starts from step 0,
+  the next press stops, releasing the key does nothing, and repeated key-down
+  does not toggle again.
+- [ ] On SOUND, toggle Synth Engine with Left/Right and Confirm; verify BASIC-VA
+  and PLAITS both sound and that Morph scans all sixteen Plaits models.
+- [ ] Lose window focus while holding a D-pad direction; verify repeat stops and
+  no transport state is left latched.
 - [ ] Mute/unmute using X and M.
 - [ ] Hold a direction and verify configurable delay and acceleration.
 - [ ] Open/close Help and Project Menu; verify modal input does not reach the

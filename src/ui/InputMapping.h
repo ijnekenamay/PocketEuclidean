@@ -101,6 +101,15 @@ public:
         ControllerControl control,
         const ControllerMappingProfile& profile) noexcept;
     static bool isRepeatable(Action action) noexcept;
+    // Returns true when the SDL adapter should dispatch this action for the
+    // given edge. Edge-triggered actions (transport, confirm, back, mute,
+    // screen changes, ...) fire on the press edge only, so releasing the key
+    // or button cannot apply the action a second time. ValueFine tracks both
+    // edges because it is a modifier state. OS key-repeat events never
+    // dispatch; held directional input is driven by InputRepeater instead.
+    static bool shouldDispatch(Action action,
+                               bool pressed,
+                               bool isRepeat = false) noexcept;
 };
 
 class InputRepeater {
@@ -117,6 +126,9 @@ public:
                                      ActionEvent event,
                                      std::uint64_t nowMs) noexcept;
     void release(InputSource source, std::uint8_t control) noexcept;
+    // Forgets every held control. Call when focus is lost or an input device
+    // disconnects so a missed release cannot leave a direction repeating.
+    void clear() noexcept;
     std::optional<ActionEvent> poll(std::uint64_t nowMs) noexcept;
 
 private:

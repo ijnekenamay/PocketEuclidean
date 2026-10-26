@@ -7,7 +7,10 @@
 
 namespace pocket::project {
 
-constexpr std::uint32_t ProjectFormatVersion = 6;
+constexpr std::uint32_t ProjectFormatVersion = 8;
+// Oldest on-disk version the reader can still load. Older files are upgraded
+// in memory by filling newly added fields with their defaults.
+constexpr std::uint32_t OldestSupportedProjectVersion = 6;
 
 struct ProjectEffectState {
     std::uint16_t delayMilliseconds = 250;
@@ -25,6 +28,8 @@ struct ProjectTrackData {
     InstrumentType instrument = InstrumentType::Sampler;
     std::uint8_t volume = 100;
     float pan = 0.0F;
+    float reverbSend = 0.0F;
+    float delaySend = 0.0F;
     AdEnvelopeSettings envelope{};
     TrackFilterSettings filter{};
     TrackSynthSettings synth{};

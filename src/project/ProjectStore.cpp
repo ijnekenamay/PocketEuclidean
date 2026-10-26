@@ -62,7 +62,7 @@ bool readDouble(std::istringstream& in, double& value) {
 }
 
 bool parseTrackLine(const std::string& key, std::istringstream& in,
-                    ProjectData& project) {
+                    ProjectData& project, std::uint32_t version) {
     // key is "track.<n>.<field>[.<m>]"
     const auto first = key.find('.');
     const auto second = key.find('.', first + 1);
@@ -123,6 +123,15 @@ bool parseTrackLine(const std::string& key, std::istringstream& in,
             return false;
         }
         track.muted = muted != 0;
+        if (version >= 8) {
+            // Format v8 appended the reverb and delay send levels.
+            if (!readFloat(in, track.reverbSend) ||
+                !readFloat(in, track.delaySend) ||
+                track.reverbSend < 0.0F || track.reverbSend > 1.0F ||
+                track.delaySend < 0.0F || track.delaySend > 1.0F) {
+                return false;
+            }
+        }
         return true;
     }
     if (field == "env") {
@@ -139,6 +148,15 @@ bool parseTrackLine(const std::string& key, std::istringstream& in,
         return true;
     }
     if (field == "synth") {
+        // Format v7 added the per-track engine type as the first field.
+        // Older files stored only the four continuous parameters.
+        if (version >= 7) {
+            int engineType = 0;
+            if (!readInt(in, engineType, 0, 1)) {
+                return false;
+            }
+            track.synth.engineType = static_cast<SynthEngineType>(engineType);
+        }
         return readFloat(in, track.synth.pitchHz) &&
                readFloat(in, track.synth.morph) &&
                readFloat(in, track.synth.timbre) &&
@@ -162,6 +180,8 @@ ProjectData captureProject(const Sequencer& sequencer) {
         target.instrument = source.instrument;
         target.volume = source.volume;
         target.pan = source.pan;
+        target.reverbSend = source.reverbSend;
+        target.delaySend = source.delaySend;
         target.envelope = source.envelope;
         target.filter = source.filter;
         target.synth = source.synth;
@@ -179,6 +199,8 @@ ProjectData captureProject(
         auto& target = project.tracks[i];
         target.volume = shadow.volume;
         target.pan = shadow.pan;
+        target.reverbSend = shadow.reverbSend;
+        target.delaySend = shadow.delaySend;
         target.muted = shadow.muted;
         target.envelope = shadow.envelope;
         target.filter = shadow.filter;
@@ -203,6 +225,8 @@ bool applyProject(const ProjectData& project, Sequencer& sequencer) {
         ok = sequencer.setInstrument(i, source.instrument) && ok;
         ok = sequencer.setVolume(i, source.volume) && ok;
         ok = sequencer.setPan(i, source.pan) && ok;
+        ok = sequencer.setReverbSend(i, source.reverbSend) && ok;
+        ok = sequencer.setDelaySend(i, source.delaySend) && ok;
         ok = sequencer.setEnvelope(i, source.envelope) && ok;
         ok = sequencer.setFilter(i, source.filter) && ok;
         ok = sequencer.setSynth(i, source.synth) && ok;
@@ -235,13 +259,14 @@ std::string serializeProject(const ProjectData& project) {
             << int(j.shiftRange) << ' ' << int(j.useCustomSeed) << ' '
             << j.randomSeed << '\n';
         out << prefix << "mix " << int(t.muted) << ' ' << int(t.instrument)
-            << ' ' << int(t.volume) << ' ' << t.pan << '\n';
+            << ' ' << int(t.volume) << ' ' << t.pan << ' ' << t.reverbSend
+            << ' ' << t.delaySend << '\n';
         out << prefix << "env " << t.envelope.attackSeconds << ' '
             << t.envelope.decaySeconds << '\n';
         out << prefix << "filter " << int(t.filter.enabled) << ' '
             << t.filter.cutoffHz << '\n';
-        out << prefix << "synth " << t.synth.pitchHz << ' '
-            << t.synth.morph << ' ' << t.synth.timbre << ' '
+        out << prefix << "synth " << static_cast<int>(t.synth.engineType) << ' '
+            << t.synth.pitchHz << ' ' << t.synth.morph << ' ' << t.synth.timbre << ' '
             << t.synth.color << '\n';
     }
     const auto& fx = project.effects;
@@ -280,9 +305,13 @@ bool parseProject(const std::string& text, ProjectData& out,
         if (key == "version") {
             std::uint32_t version = 0;
             ok = readValue(in, version);
-            if (ok && version != ProjectFormatVersion) {
+            if (ok && (version < OldestSupportedProjectVersion ||
+                       version > ProjectFormatVersion)) {
                 return fail(error, "unsupported project version " +
                                        std::to_string(version));
+            }
+            if (ok) {
+                project.formatVersion = version;
             }
             versionSeen = ok;
         } else if (key == "tempo") {
@@ -295,7 +324,10 @@ bool parseProject(const std::string& text, ProjectData& out,
                  readFloat(in, fx.filterCutoffHz) &&
                  readInt(in, fx.filterResponse, 0, 255);
         } else if (key.rfind("track.", 0) == 0) {
-            ok = parseTrackLine(key, in, project);
+            if (!versionSeen) {
+                return fail(error, "missing version before track data");
+            }
+            ok = parseTrackLine(key, in, project, project.formatVersion);
         }
         if (!ok) {
             return fail(error, "invalid line " + std::to_string(lineNumber));

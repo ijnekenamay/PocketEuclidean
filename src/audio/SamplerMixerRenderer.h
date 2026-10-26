@@ -5,6 +5,7 @@
 #include "audio/AudioParameterQueue.h"
 #include "audio/Mixer.h"
 #include "audio/OnePoleLowPass.h"
+#include "audio/ReverbEffect.h"
 #include "audio/SamplerVoicePool.h"
 #include "audio/SynthVoice.h"
 #include "sequencer/Sequencer.h"
@@ -64,8 +65,12 @@ private:
     std::array<float, MaxRenderFrames> outputRight_{};
     std::array<StereoInputBuffer, TrackCount> inputs_{};
     std::array<TrackMixerSettings, TrackCount> settings_{};
+    std::array<float, MaxRenderFrames * 2> reverbSendBuffer_{};
+    std::array<float, MaxRenderFrames * 2> delaySendBuffer_{};
     project::ProjectEffectState effectState_{};
     DelayEffect delayEffect_{};
+    DelayEffect delaySendEffect_{};
+    ReverbEffect reverbEffect_{};
 };
 
 } // namespace pocket::audio

@@ -74,6 +74,13 @@ bool AudioParameterQueue::isValid(
     case AudioParameter::TrackSynthColor:
         return command.track < TrackCount &&
                command.value >= 0.0F && command.value <= 1.0F;
+    case AudioParameter::TrackSynthEngineType:
+        return command.track < TrackCount &&
+               (command.value == 0.0F || command.value == 1.0F);
+    case AudioParameter::TrackReverbSend:
+    case AudioParameter::TrackDelaySend:
+        return command.track < TrackCount && command.value >= 0.0F &&
+               command.value <= 1.0F;
     case AudioParameter::DelayTimeMs:
         return command.track == 0 &&
                command.value >= static_cast<float>(DelayEffect::MinDelayMs) &&

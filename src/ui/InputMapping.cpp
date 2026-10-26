@@ -150,6 +150,18 @@ bool InputMapping::isRepeatable(Action action) noexcept {
            action == Action::NavLeft || action == Action::NavRight;
 }
 
+bool InputMapping::shouldDispatch(Action action,
+                                  bool pressed,
+                                  bool isRepeat) noexcept {
+    if (isRepeat && !isRepeatable(action)) {
+        return false;
+    }
+    if (action == Action::ValueFine) {
+        return true;
+    }
+    return pressed;
+}
+
 InputRepeater::InputRepeater(std::uint32_t initialDelayMs,
                              std::uint32_t normalIntervalMs,
                              std::uint32_t fastIntervalMs,
@@ -192,6 +204,13 @@ void InputRepeater::release(InputSource source, std::uint8_t control) noexcept {
             return;
         }
     }
+}
+
+void InputRepeater::clear() noexcept {
+    for (auto& held : held_) {
+        held.active = false;
+    }
+    nextPollIndex_ = 0;
 }
 
 std::optional<ActionEvent> InputRepeater::poll(std::uint64_t nowMs) noexcept {

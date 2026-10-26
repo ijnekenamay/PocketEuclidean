@@ -4,10 +4,14 @@
 #include "ui/UiController.h"
 
 namespace pocket::ui {
+namespace {
 
-bool makeMainScreenSnapshot(const Sequencer& sequencer,
-                            std::size_t selectedTrack,
-                            MainScreenSnapshot& snapshot) {
+bool buildSnapshot(
+    const Sequencer& sequencer,
+    std::size_t selectedTrack,
+    const std::array<TrackAudioSettings, TrackCount>* audioTrackSettings,
+    const MainScreenLiveModulation* live,
+    MainScreenSnapshot& snapshot) {
     if (selectedTrack >= TrackCount) {
         return false;
     }
@@ -19,11 +23,15 @@ bool makeMainScreenSnapshot(const Sequencer& sequencer,
 
     for (std::size_t trackIndex = 0; trackIndex < TrackCount; ++trackIndex) {
         const auto& track = sequencer.track(trackIndex);
-        const EuclideanConfig rhythm{
-            track.effectiveRhythm.length,
-            track.effectiveRhythm.fill,
-            track.effectiveRhythm.offset,
-        };
+        EffectiveRhythm effective = track.effectiveRhythm;
+        if (live != nullptr && live->active && live->mirror != nullptr) {
+            const auto published = live->mirror->read(trackIndex);
+            if (published.valid) {
+                effective = published.rhythm;
+            }
+        }
+        const EuclideanConfig rhythm{effective.length, effective.fill,
+                                     effective.offset};
         if (!EuclideanGenerator::isValid(rhythm) ||
             track.position >= rhythm.length) {
             return false;
@@ -41,8 +49,23 @@ bool makeMainScreenSnapshot(const Sequencer& sequencer,
         }
     }
 
+    if (audioTrackSettings != nullptr) {
+        for (std::size_t trackIndex = 0; trackIndex < TrackCount; ++trackIndex) {
+            next.tracks[trackIndex].muted =
+                (*audioTrackSettings)[trackIndex].muted;
+        }
+    }
+
     snapshot = next;
     return true;
+}
+
+} // namespace
+
+bool makeMainScreenSnapshot(const Sequencer& sequencer,
+                            std::size_t selectedTrack,
+                            MainScreenSnapshot& snapshot) {
+    return buildSnapshot(sequencer, selectedTrack, nullptr, nullptr, snapshot);
 }
 
 bool makeMainScreenSnapshot(
@@ -50,14 +73,18 @@ bool makeMainScreenSnapshot(
     std::size_t selectedTrack,
     const std::array<TrackAudioSettings, TrackCount>& audioTrackSettings,
     MainScreenSnapshot& snapshot) {
-    if (!makeMainScreenSnapshot(sequencer, selectedTrack, snapshot)) {
-        return false;
-    }
-    for (std::size_t trackIndex = 0; trackIndex < TrackCount; ++trackIndex) {
-        snapshot.tracks[trackIndex].muted =
-            audioTrackSettings[trackIndex].muted;
-    }
-    return true;
+    return buildSnapshot(sequencer, selectedTrack, &audioTrackSettings, nullptr,
+                         snapshot);
+}
+
+bool makeMainScreenSnapshot(
+    const Sequencer& sequencer,
+    std::size_t selectedTrack,
+    const std::array<TrackAudioSettings, TrackCount>& audioTrackSettings,
+    const MainScreenLiveModulation& live,
+    MainScreenSnapshot& snapshot) {
+    return buildSnapshot(sequencer, selectedTrack, &audioTrackSettings, &live,
+                         snapshot);
 }
 
 } // namespace pocket::ui

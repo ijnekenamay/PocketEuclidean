@@ -3,6 +3,7 @@
 #include "audio/AudioParameterQueue.h"
 #include "audio/SequencerCommandQueue.h"
 #include "sequencer/Sequencer.h"
+#include "ui/ModulationMirror.h"
 #include "ui/StepTriggerEventQueue.h"
 #include "ui/PlayheadMirror.h"
 
@@ -51,6 +52,11 @@ public:
     void setPlayheadMirror(ui::PlayheadMirror* mirror) noexcept {
         playhead_ = mirror;
     }
+    // Optional. Publishes the modulated rhythm and LFO phase for the UI once
+    // per tick; without it the UI keeps showing base values while playing.
+    void setModulationMirror(ui::ModulationMirror* mirror) noexcept {
+        modulation_ = mirror;
+    }
     void resetTimeline() noexcept;
     std::uint32_t callbackFailureCount() const noexcept {
         return callbackFailureCount_.load(std::memory_order_relaxed);
@@ -71,6 +77,7 @@ private:
     AudioParameterQueue* parameterQueue_ = nullptr;
     SequencerCommandQueue* sequencerQueue_ = nullptr;
     ui::PlayheadMirror* playhead_ = nullptr;
+    ui::ModulationMirror* modulation_ = nullptr;
     std::uint64_t nextBlockStartFrame_ = 0;
     std::atomic<std::uint32_t> callbackFailureCount_{0};
 };

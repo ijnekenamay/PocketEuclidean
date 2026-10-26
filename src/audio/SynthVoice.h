@@ -14,6 +14,7 @@ struct SynthParameters {
     float color = 0.5F;
     float morph = 0.5F;
     float level = 0.5F;
+    SynthEngineType engine = SynthEngineType::BasicVa;
 };
 
 class ISynthVoice {

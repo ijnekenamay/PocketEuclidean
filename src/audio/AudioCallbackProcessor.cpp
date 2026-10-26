@@ -31,6 +31,8 @@ bool AudioCallbackProcessor::isRealtimeSafe() const noexcept {
     return visualEvents_.isLockFree() && callbackFailureCount_.is_lock_free() &&
            (sequencerQueue_ == nullptr || sequencerQueue_->isLockFree()) &&
            (renderer_ == nullptr || renderer_->isRealtimeSafe()) &&
+           (playhead_ == nullptr || playhead_->isLockFree()) &&
+           (modulation_ == nullptr || modulation_->isLockFree()) &&
            (parameterQueue_ == nullptr ||
             (renderer_ != nullptr && parameterQueue_->isLockFree()));
 }
@@ -117,11 +119,21 @@ bool AudioCallbackProcessor::process(float* interleavedStereo,
             }
             visualEvents_.pushTick(blockStartFrame + sampleOffset, tick);
             if (playhead_ != nullptr) {
-    for (std::size_t t = 0; t < TrackCount; ++t) {
-        const auto& s = sequencer_.track(t);
-        playhead_->publish(t, s.position, s.effectiveRhythm.length);
-    }
-}
+                for (std::size_t t = 0; t < TrackCount; ++t) {
+                    const auto& s = sequencer_.track(t);
+                    playhead_->publish(t, s.position,
+                                       s.effectiveRhythm.length);
+                }
+            }
+            if (modulation_ != nullptr) {
+                for (std::size_t t = 0; t < TrackCount; ++t) {
+                    const auto& s = sequencer_.track(t);
+                    const auto lfo = sequencer_.lfoDisplay(t);
+                    modulation_->publish(t, s.effectiveRhythm,
+                                         static_cast<float>(lfo.phase),
+                                         static_cast<float>(lfo.value));
+                }
+            }
             if (tickCallback_ != nullptr) {
                 tickCallback_(tickUserData_, sampleOffset, tick);
             }

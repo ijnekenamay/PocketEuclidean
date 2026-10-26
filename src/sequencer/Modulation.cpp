@@ -191,6 +191,7 @@ std::optional<EffectiveRhythm> ModulationEngine::advance(
         runtime.phase = advancedPhases[lfo];
         const double waveform = LfoWaveformGenerator::value(
             config.waveform, runtime.phase, runtime.heldValue);
+        runtime.value = waveform;
         const auto destination =
             static_cast<std::size_t>(config.destination);
         contributions[destination] += waveform * config.amount;
@@ -209,6 +210,18 @@ std::optional<EffectiveRhythm> ModulationEngine::advance(
     std::array<LfoConfig, MaxLfosPerTrack> configs{};
     configs[0] = config;
     return advance(track, configs, base, elapsedSeconds, tempoBpm);
+}
+
+LfoDisplayState ModulationEngine::display(std::size_t track,
+                                          std::size_t lfo) const noexcept {
+    LfoDisplayState state;
+    if (track >= runtimes_.size() || lfo >= runtimes_[track].size()) {
+        return state;
+    }
+    const auto& runtime = runtimes_[track][lfo];
+    state.phase = std::clamp(runtime.phase, 0.0, 1.0);
+    state.value = std::clamp(runtime.value, -1.0, 1.0);
+    return state;
 }
 
 } // namespace pocket

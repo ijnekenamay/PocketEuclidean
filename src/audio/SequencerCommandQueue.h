@@ -20,6 +20,8 @@ enum class SequencerCommandType : std::uint8_t {
     SetInstrument,
     SetVolume,
     SetPan,
+    SetReverbSend,
+    SetDelaySend,
     SetEnvelope,
     SetFilter,
     SetSynth
@@ -38,6 +40,8 @@ struct SequencerCommand {
     InstrumentType instrument = InstrumentType::Sampler;
     std::uint8_t volume = 100;
     float pan = 0.0F;
+    float reverbSend = 0.0F;
+    float delaySend = 0.0F;
     AdEnvelopeSettings envelope{};
     TrackFilterSettings filter{};
     TrackSynthSettings synth{};
@@ -106,6 +110,10 @@ inline bool applySequencerCommand(Sequencer& sequencer,
         return sequencer.setVolume(c.track, c.volume);
     case SequencerCommandType::SetPan:
         return sequencer.setPan(c.track, c.pan);
+    case SequencerCommandType::SetReverbSend:
+        return sequencer.setReverbSend(c.track, c.reverbSend);
+    case SequencerCommandType::SetDelaySend:
+        return sequencer.setDelaySend(c.track, c.delaySend);
     case SequencerCommandType::SetEnvelope:
         return sequencer.setEnvelope(c.track, c.envelope);
     case SequencerCommandType::SetFilter:
@@ -173,8 +181,9 @@ private:
     }
     static bool same(const TrackSynthSettings& a,
                      const TrackSynthSettings& b) {
-        return a.pitchHz == b.pitchHz && a.morph == b.morph &&
-               a.timbre == b.timbre && a.color == b.color;
+        return a.engineType == b.engineType && a.pitchHz == b.pitchHz &&
+               a.morph == b.morph && a.timbre == b.timbre &&
+               a.color == b.color;
     }
 
     void syncTrack(std::size_t t, const TrackState& now) {
@@ -232,6 +241,20 @@ private:
             c.pan = now.pan;
             if (queue_.push(c)) {
                 shadow_.setPan(t, now.pan);
+            }
+        }
+        if (now.reverbSend != old.reverbSend) {
+            c.type = SequencerCommandType::SetReverbSend;
+            c.reverbSend = now.reverbSend;
+            if (queue_.push(c)) {
+                shadow_.setReverbSend(t, now.reverbSend);
+            }
+        }
+        if (now.delaySend != old.delaySend) {
+            c.type = SequencerCommandType::SetDelaySend;
+            c.delaySend = now.delaySend;
+            if (queue_.push(c)) {
+                shadow_.setDelaySend(t, now.delaySend);
             }
         }
         if (!same(now.envelope, old.envelope)) {

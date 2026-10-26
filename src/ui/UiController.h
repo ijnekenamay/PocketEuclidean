@@ -42,6 +42,8 @@ enum class MixerField : std::uint8_t {
     Volume,
     Pan,
     Mute,
+    ReverbSend,
+    DelaySend,
     MasterVolume
 };
 
@@ -50,6 +52,7 @@ enum class SoundField : std::uint8_t {
     Decay,
     FilterEnabled,
     FilterCutoff,
+    EngineType,
     Pitch,
     Morph,
     Timbre,
@@ -101,6 +104,8 @@ enum class DiscardChoice : std::uint8_t {
 struct TrackAudioSettings {
     std::uint8_t volume = 100;
     float pan = 0.0F;
+    float reverbSend = 0.0F;
+    float delaySend = 0.0F;
     bool muted = false;
     AdEnvelopeSettings envelope{};
     TrackFilterSettings filter{};
@@ -165,6 +170,8 @@ public:
         const auto& shadow = state_.audioTrackSettings[bounded];
         effective.volume = shadow.volume;
         effective.pan = shadow.pan;
+        effective.reverbSend = shadow.reverbSend;
+        effective.delaySend = shadow.delaySend;
         effective.muted = shadow.muted;
         effective.envelope = shadow.envelope;
         effective.filter = shadow.filter;
@@ -184,7 +191,8 @@ public:
         for (std::size_t track = 0; track < TrackCount; ++track) {
             const auto& source = sequencer_.track(track);
             state_.audioTrackSettings[track] = {
-                source.volume, source.pan, source.muted, source.envelope,
+                source.volume, source.pan, source.reverbSend,
+                source.delaySend, source.muted, source.envelope,
                 source.filter, source.synth};
         }
     }

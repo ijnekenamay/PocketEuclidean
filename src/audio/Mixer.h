@@ -18,11 +18,20 @@ struct TrackMixerSettings {
     std::uint8_t volumePercent = 100;
     float pan = 0.0F;
     bool muted = false;
+    float reverbSend = 0.0F;
+    float delaySend = 0.0F;
 };
 
 struct StereoOutputBuffer {
     float* left = nullptr;
     float* right = nullptr;
+};
+
+// Optional post-fader effect sends. Each pointer addresses an interleaved
+// stereo scratch buffer that receives the track sum for that send.
+struct SendBuffers {
+    float* reverb = nullptr;
+    float* delay = nullptr;
 };
 
 class PeakMeters {
@@ -60,7 +69,8 @@ public:
                       std::uint8_t masterVolumePercent,
                       std::uint32_t sampleRate,
                       const StereoOutputBuffer& output,
-                      std::size_t frameCount) noexcept;
+                      std::size_t frameCount,
+                      const SendBuffers* sends = nullptr) noexcept;
 
     const PeakMeters& meters() const noexcept { return meters_; }
     bool isRealtimeSafe() const noexcept { return meters_.isLockFree(); }
@@ -71,6 +81,8 @@ private:
 
     std::array<float, TrackCount> smoothedVolume_{};
     std::array<float, TrackCount> smoothedPan_{};
+    std::array<float, TrackCount> smoothedReverbSend_{};
+    std::array<float, TrackCount> smoothedDelaySend_{};
     float smoothedMasterVolume_ = 0.0F;
     PeakMeters meters_{};
 };

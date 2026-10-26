@@ -70,6 +70,15 @@ struct LfoRuntime {
     double phase = 0.0;
     std::uint32_t randomState = 0x9e3779b9U;
     double heldValue = 0.0;
+    // Last generated waveform value, kept so the UI can draw a live marker.
+    double value = 0.0;
+};
+
+// Read-only view of one LFO for visualisation. `phase` is normalised to
+// [0, 1) and `value` is the waveform output in [-1, 1].
+struct LfoDisplayState {
+    double phase = 0.0;
+    double value = 0.0;
 };
 
 class LfoRateCalculator {
@@ -117,6 +126,10 @@ public:
                                            const EffectiveRhythm& base,
                                            double elapsedSeconds,
                                            double tempoBpm) noexcept;
+
+    // Audio-thread safe read of the visualisation state after advance().
+    LfoDisplayState display(std::size_t track,
+                            std::size_t lfo = 0) const noexcept;
 
 private:
     std::array<std::array<LfoRuntime, MaxLfosPerTrack>, ModulationTrackCount>

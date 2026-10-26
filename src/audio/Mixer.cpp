@@ -61,7 +61,8 @@ float Mixer::panRightGain(float pan) noexcept {
 }
 
 TrackMixerSettings Mixer::settingsForTrack(const TrackState& track) noexcept {
-    return {track.volume, track.pan, track.muted};
+    return {track.volume, track.pan, track.muted, track.reverbSend,
+            track.delaySend};
 }
 
 bool Mixer::processBlock(
@@ -70,7 +71,8 @@ bool Mixer::processBlock(
     std::uint8_t masterVolumePercent,
     std::uint32_t sampleRate,
     const StereoOutputBuffer& output,
-    std::size_t frameCount) noexcept {
+    std::size_t frameCount,
+    const SendBuffers* sends) noexcept {
     if (output.left == nullptr || output.right == nullptr || sampleRate == 0 ||
         masterVolumePercent > 100) {
         return false;
@@ -79,7 +81,11 @@ bool Mixer::processBlock(
         const auto& settings = tracks[trackIndex];
         if (inputs[trackIndex].left == nullptr ||
             settings.volumePercent > 100 || !std::isfinite(settings.pan) ||
-            settings.pan < -1.0F || settings.pan > 1.0F) {
+            settings.pan < -1.0F || settings.pan > 1.0F ||
+            !std::isfinite(settings.reverbSend) ||
+            settings.reverbSend < 0.0F || settings.reverbSend > 1.0F ||
+            !std::isfinite(settings.delaySend) ||
+            settings.delaySend < 0.0F || settings.delaySend > 1.0F) {
             return false;
         }
         for (std::size_t frame = 0; frame < frameCount; ++frame) {
@@ -91,6 +97,15 @@ bool Mixer::processBlock(
         }
     }
 
+    if (sends != nullptr) {
+        if (sends->reverb != nullptr) {
+            std::fill_n(sends->reverb, frameCount * 2, 0.0F);
+        }
+        if (sends->delay != nullptr) {
+            std::fill_n(sends->delay, frameCount * 2, 0.0F);
+        }
+    }
+
     const float smoothingCoefficient = static_cast<float>(
         std::exp(-1.0 / (GainSmoothingSeconds * sampleRate)));
     std::array<float, TrackCount> trackPeakValues{};
@@ -99,6 +114,10 @@ bool Mixer::processBlock(
     for (std::size_t frame = 0; frame < frameCount; ++frame) {
         float mixedLeft = 0.0F;
         float mixedRight = 0.0F;
+        float reverbSendLeft = 0.0F;
+        float reverbSendRight = 0.0F;
+        float delaySendLeft = 0.0F;
+        float delaySendRight = 0.0F;
         for (std::size_t trackIndex = 0; trackIndex < tracks.size(); ++trackIndex) {
             const auto& settings = tracks[trackIndex];
             const auto& input = inputs[trackIndex];
@@ -108,6 +127,12 @@ bool Mixer::processBlock(
                 smoothedVolume_[trackIndex], targetVolume, smoothingCoefficient);
             smoothedPan_[trackIndex] = smooth(
                 smoothedPan_[trackIndex], settings.pan, smoothingCoefficient);
+            smoothedReverbSend_[trackIndex] = smooth(
+                smoothedReverbSend_[trackIndex], settings.reverbSend,
+                smoothingCoefficient);
+            smoothedDelaySend_[trackIndex] = smooth(
+                smoothedDelaySend_[trackIndex], settings.delaySend,
+                smoothingCoefficient);
 
             const float leftPan = panLeftGain(smoothedPan_[trackIndex]);
             const float rightPan = panRightGain(smoothedPan_[trackIndex]);
@@ -135,6 +160,11 @@ bool Mixer::processBlock(
                 trackRight = sourceRight * gain * balanceRight;
             }
 
+            reverbSendLeft += trackLeft * smoothedReverbSend_[trackIndex];
+            reverbSendRight += trackRight * smoothedReverbSend_[trackIndex];
+            delaySendLeft += trackLeft * smoothedDelaySend_[trackIndex];
+            delaySendRight += trackRight * smoothedDelaySend_[trackIndex];
+
             trackPeakValues[trackIndex] =
                 std::max(trackPeakValues[trackIndex],
                          std::max(std::abs(trackLeft), std::abs(trackRight)));
@@ -155,6 +185,21 @@ bool Mixer::processBlock(
         masterPeakValue =
             std::max(masterPeakValue,
                      std::max(std::abs(outputLeft), std::abs(outputRight)));
+
+        if (sends != nullptr) {
+            // Sends are post-fader and follow the master level so the wet
+            // signal stays balanced with the dry mix.
+            if (sends->reverb != nullptr) {
+                sends->reverb[frame * 2] = reverbSendLeft * smoothedMasterVolume_;
+                sends->reverb[frame * 2 + 1] =
+                    reverbSendRight * smoothedMasterVolume_;
+            }
+            if (sends->delay != nullptr) {
+                sends->delay[frame * 2] = delaySendLeft * smoothedMasterVolume_;
+                sends->delay[frame * 2 + 1] =
+                    delaySendRight * smoothedMasterVolume_;
+            }
+        }
     }
 
     for (std::size_t trackIndex = 0; trackIndex < trackPeakValues.size();

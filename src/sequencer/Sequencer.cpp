@@ -121,6 +121,24 @@ bool Sequencer::setPan(std::size_t index, float normalizedPan) noexcept {
     return true;
 }
 
+bool Sequencer::setReverbSend(std::size_t index, float amount) noexcept {
+    if (index >= TrackCount || !std::isfinite(amount) || amount < 0.0F ||
+        amount > 1.0F) {
+        return false;
+    }
+    tracks_[index].reverbSend = amount;
+    return true;
+}
+
+bool Sequencer::setDelaySend(std::size_t index, float amount) noexcept {
+    if (index >= TrackCount || !std::isfinite(amount) || amount < 0.0F ||
+        amount > 1.0F) {
+        return false;
+    }
+    tracks_[index].delaySend = amount;
+    return true;
+}
+
 bool Sequencer::setEnvelope(
     std::size_t index, const AdEnvelopeSettings& envelope) noexcept {
     if (index >= TrackCount || !std::isfinite(envelope.attackSeconds) ||

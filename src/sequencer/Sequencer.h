@@ -37,10 +37,16 @@ struct TrackFilterSettings {
     float cutoffHz = 12000.0F;
 };
 
+enum class SynthEngineType : std::uint8_t {
+    BasicVa,
+    Plaits
+};
+
 struct TrackSynthSettings {
     static constexpr float MinPitchHz = 20.0F;
     static constexpr float MaxPitchHz = 2000.0F;
 
+    SynthEngineType engineType = SynthEngineType::BasicVa;
     float pitchHz = 110.0F;
     float morph = 0.5F;
     float timbre = 0.5F;
@@ -57,6 +63,8 @@ struct TrackState {
     InstrumentType instrument = InstrumentType::Sampler;
     std::uint8_t volume = 100;
     float pan = 0.0F;
+    float reverbSend = 0.0F;
+    float delaySend = 0.0F;
     AdEnvelopeSettings envelope{};
     TrackFilterSettings filter{};
     TrackSynthSettings synth{};
@@ -125,6 +133,12 @@ public:
     }
 
     const TrackState& track(std::size_t index) const;
+    // Live LFO phase/waveform for display. Valid for any track index; the
+    // default LFO is the one exposed by the MODULATION screen.
+    LfoDisplayState lfoDisplay(std::size_t trackIndex,
+                               std::size_t lfoIndex = 0) const noexcept {
+        return modulation_.display(trackIndex, lfoIndex);
+    }
     bool setRhythm(std::size_t index, const EuclideanConfig& config);
     bool setLfo(std::size_t trackIndex,
                 const LfoConfig& config,
@@ -135,6 +149,8 @@ public:
     bool setInstrument(std::size_t index, InstrumentType instrument);
     bool setVolume(std::size_t index, std::uint8_t volume);
     bool setPan(std::size_t index, float normalizedPan) noexcept;
+    bool setReverbSend(std::size_t index, float amount) noexcept;
+    bool setDelaySend(std::size_t index, float amount) noexcept;
     bool setEnvelope(std::size_t index,
                      const AdEnvelopeSettings& envelope) noexcept;
     bool setFilter(std::size_t index,
