@@ -5,10 +5,10 @@
 #include "audio/SelectableSynthVoice.h"
 #include "audio/AudioParameterQueue.h"
 #include "audio/Mixer.h"
-#include "audio/SampleCache.h"
 #include "audio/SequencerCommandQueue.h"
 #include "audio/SamplerMixerRenderer.h"
 #include "audio/SamplerVoicePool.h"
+#include "audio/WavDecoder.h"
 #include "sequencer/Sequencer.h"
 #include "ui/PlayheadMirror.h"
 #include "ui/StepLightBank.h"
@@ -24,6 +24,8 @@
 #include <fstream>
 #include <iterator>
 #include <ostream>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace pocket::app {
@@ -52,6 +54,7 @@ public:
             params.color = synth.color;
             params.level = 0.7F;
             params.engine = synth.engineType;
+            params.model = synth.model;
             synthRack_.configure(track, &synthVoices_[track], params);
         }
         processor_.setParameterQueue(&queue_);
@@ -101,28 +104,114 @@ public:
             if (loaded >= TrackCount) {
                 break;
             }
-            std::ifstream in(file, std::ios::binary);
-            std::vector<std::uint8_t> bytes(
-                (std::istreambuf_iterator<char>(in)),
-                std::istreambuf_iterator<char>());
-            const auto result =
-                cache_.loadWave(loaded, bytes.data(), bytes.size());
-            if (!result) {
-                log << "Skipped " << file.filename().string()
-                    << " (decode error "
-                    << static_cast<int>(result.decodeError) << ")\n";
-                continue;
-            }
-            audio::MonoSampleView view;
-            if (cache_.sample(loaded, view)) {
-                voices_.assignSample(loaded, view);
+            std::string error;
+            if (loadSampleFile(loaded, file, &error)) {
                 log << "Track " << (loaded + 1) << " <- "
-                    << file.filename().string() << " (" << view.frameCount
-                    << " frames @ " << view.sampleRate << " Hz)\n";
+                    << file.filename().string() << " ("
+                    << sampleFrameCounts_[loaded] << " frames @ "
+                    << sampleRates_[loaded] << " Hz)\n";
                 ++loaded;
+            } else {
+                log << "Skipped " << file.filename().string() << " ("
+                    << error << ")\n";
             }
         }
         return loaded;
+    }
+
+    // UI thread: decodes a WAV and queues it for the selected track. The
+    // previous buffer stays alive until the audio thread acknowledges the
+    // swap, so samples can be replaced while playback is running.
+    bool loadSampleFile(std::size_t track,
+                        const std::filesystem::path& path,
+                        std::string* error = nullptr) {
+        if (track >= TrackCount) {
+            setError(error, "track out of range");
+            return false;
+        }
+        std::ifstream in(path, std::ios::binary);
+        if (!in) {
+            setError(error, "cannot open " + path.string());
+            return false;
+        }
+        std::vector<std::uint8_t> bytes(
+            (std::istreambuf_iterator<char>(in)),
+            std::istreambuf_iterator<char>());
+        if (bytes.empty()) {
+            setError(error, "empty WAV file");
+            return false;
+        }
+
+        std::size_t capacity = std::clamp<std::size_t>(
+            bytes.size() / 2 + 64, 4096,
+            audio::WavDecoder::MaxDecodedFrames);
+        std::vector<float> frames(capacity);
+        auto decoded = audio::WavDecoder::decodeMono(
+            bytes.data(), bytes.size(), frames.data(), frames.size());
+        while (!decoded &&
+               decoded.error == audio::WavDecodeError::OutputTooSmall &&
+               capacity < audio::WavDecoder::MaxDecodedFrames) {
+            capacity =
+                std::min(capacity * 2, audio::WavDecoder::MaxDecodedFrames);
+            frames.resize(capacity);
+            decoded = audio::WavDecoder::decodeMono(
+                bytes.data(), bytes.size(), frames.data(), frames.size());
+        }
+        if (!decoded) {
+            setError(error, "decode error " +
+                                std::to_string(
+                                    static_cast<int>(decoded.error)));
+            return false;
+        }
+        frames.resize(decoded.frameCount);
+        const audio::MonoSampleView view{
+            frames.data(), frames.size(), decoded.sampleRate};
+        if (beginSwap(track, view, path.string(), error) == 0) {
+            return false;
+        }
+        ownedSamples_[track] = std::move(frames);
+        sampleFrameCounts_[track] = ownedSamples_[track].size();
+        sampleRates_[track] = decoded.sampleRate;
+        return true;
+    }
+
+    // UI thread: restores the built-in synthetic sample for a track.
+    bool useBuiltinSample(std::size_t track, std::string* error = nullptr) {
+        if (track >= TrackCount) {
+            setError(error, "track out of range");
+            return false;
+        }
+        const auto& builtin = samples_[track];
+        const audio::MonoSampleView view{
+            builtin.data(), builtin.size(), SourceSampleRate};
+        if (beginSwap(track, view, {}, error) == 0) {
+            return false;
+        }
+        ownedSamples_[track].clear();
+        sampleFrameCounts_[track] = builtin.size();
+        sampleRates_[track] = SourceSampleRate;
+        return true;
+    }
+
+    // UI thread, once per frame: releases replaced buffers once the audio
+    // thread reports that the swap and its voice stop have been applied.
+    void updateSampleRetirement() {
+        if (!backend_.isOpen()) {
+            // No audio callback owns the queue yet, so apply on this thread.
+            voices_.applyPendingSamples();
+        }
+        retiredSamples_.erase(
+            std::remove_if(
+                retiredSamples_.begin(), retiredSamples_.end(),
+                [this](const RetiredSample& retired) {
+                    return voices_.appliedSampleId(retired.track) >= retired.id;
+                }),
+            retiredSamples_.end());
+    }
+
+    const std::string& samplePath(std::size_t track) const noexcept {
+        static const std::string empty;
+        return track < TrackCount ? samplePaths_[track] : empty;
     }
 
     bool start(const platform::AudioDeviceSpec& requested) {
@@ -192,6 +281,37 @@ public:
     }
 
 private:
+    struct RetiredSample {
+        std::size_t track = 0;
+        std::uint32_t id = 0;
+        std::vector<float> frames;
+    };
+
+    static void setError(std::string* error, const std::string& message) {
+        if (error != nullptr) {
+            *error = message;
+        }
+    }
+
+    // Caller must keep view.samples alive until the swap is acknowledged.
+    std::uint32_t beginSwap(std::size_t track,
+                            const audio::MonoSampleView& view,
+                            std::string path,
+                            std::string* error) {
+        const auto id = nextSampleId_ + 1;
+        if (!voices_.queueSample(track, view, id)) {
+            setError(error, "sample queue full");
+            return 0;
+        }
+        nextSampleId_ = id;
+        if (!ownedSamples_[track].empty()) {
+            retiredSamples_.push_back(
+                {track, id, std::move(ownedSamples_[track])});
+        }
+        samplePaths_[track] = std::move(path);
+        return id;
+    }
+
     static std::vector<float> makeSound(std::size_t track) {
         constexpr double Pi = 3.14159265358979323846;
         const double seconds = track < 2 ? 0.3 : (track < 5 ? 0.12 : 0.2);
@@ -237,11 +357,15 @@ private:
     ui::PlayheadMirror playheadMirror_;
     ui::ModulationMirror modulationMirror_;
     ui::StepLightBank lights_;
-    std::vector<float> cacheStorage_ = std::vector<float>(8U * 1024U * 1024U);
-    audio::SampleCache cache_{cacheStorage_.data(), cacheStorage_.size()};
     SdlAudioBackend backend_;
     platform::AudioDeviceSpec obtained_{};
     std::array<std::vector<float>, TrackCount> samples_{};
+    std::array<std::vector<float>, TrackCount> ownedSamples_{};
+    std::array<std::string, TrackCount> samplePaths_{};
+    std::array<std::size_t, TrackCount> sampleFrameCounts_{};
+    std::array<std::uint32_t, TrackCount> sampleRates_{};
+    std::vector<RetiredSample> retiredSamples_;
+    std::uint32_t nextSampleId_ = 0;
     std::array<float, TrackCount> shownTrackPeaks_{};
     float shownMasterPeak_ = 0.0F;
 };

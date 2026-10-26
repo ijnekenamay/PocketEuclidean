@@ -1,4 +1,5 @@
 #include "audio/PlaitsVoice.h"
+#include "audio/PlaitsModels.h"
 
 #include <algorithm>
 #include <cmath>
@@ -69,6 +70,7 @@ bool PlaitsVoice::setParameters(const SynthParameters& parameters) noexcept {
         parameters.color < 0.0F || parameters.color > 1.0F ||
         !std::isfinite(parameters.morph) ||
         parameters.morph < 0.0F || parameters.morph > 1.0F ||
+        parameters.model >= PlaitsModelCount ||
         !std::isfinite(parameters.level) ||
         parameters.level < 0.0F || parameters.level > 1.0F) {
         return false;
@@ -79,10 +81,9 @@ bool PlaitsVoice::setParameters(const SynthParameters& parameters) noexcept {
 }
 
 void PlaitsVoice::applyParameters(const SynthParameters& params) noexcept {
-    const float enginePosition = params.morph * 15.0F;
-    currentEngine_ = std::clamp(static_cast<int>(std::floor(enginePosition)),
-                                static_cast<int>(EngineType::VirtualAnalog),
-                                static_cast<int>(EngineType::WaveShaping));
+    currentEngine_ = std::clamp(
+        static_cast<int>(params.model), static_cast<int>(EngineType::VirtualAnalog),
+        static_cast<int>(EngineType::WaveShaping));
 }
 
 bool PlaitsVoice::noteOn(float velocity) noexcept {

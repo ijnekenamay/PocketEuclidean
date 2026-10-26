@@ -4,10 +4,11 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 
 namespace pocket::project {
 
-constexpr std::uint32_t ProjectFormatVersion = 8;
+constexpr std::uint32_t ProjectFormatVersion = 9;
 // Oldest on-disk version the reader can still load. Older files are upgraded
 // in memory by filling newly added fields with their defaults.
 constexpr std::uint32_t OldestSupportedProjectVersion = 6;
@@ -33,6 +34,9 @@ struct ProjectTrackData {
     AdEnvelopeSettings envelope{};
     TrackFilterSettings filter{};
     TrackSynthSettings synth{};
+    // Added in v9. Empty means the built-in synthetic sample. The app layer
+    // resolves and loads the file; applyProject ignores this field.
+    std::string samplePath;
 };
 
 struct ProjectData {

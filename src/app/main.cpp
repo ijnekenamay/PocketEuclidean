@@ -2,6 +2,7 @@
 #ifdef POCKET_HAVE_SDL2
 #include "app/DesktopAudioEngine.h"
 #endif
+#include "audio/PlaitsModels.h"
 #include "platform/SystemSettings.h"
 #include "platform/SettingsStore.h"
 #include "project/ProjectStore.h"
@@ -16,6 +17,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -1804,9 +1806,23 @@ std::vector<ScreenRow> editRows(const pocket::TrackState& track) {
              track.muted}};
 }
 
+std::string soundSampleLabel(const std::string& path) {
+    if (path.empty()) {
+        return "BUILT-IN";
+    }
+    std::string name = std::filesystem::path(path).filename().string();
+    constexpr std::size_t Limit = 16;
+    if (name.size() > Limit) {
+        name.resize(Limit - 3);
+        name += "...";
+    }
+    return name;
+}
+
 std::vector<ScreenRow> soundRows(
     const pocket::TrackState& track,
-    const pocket::project::ProjectEffectState& effects) {
+    const pocket::project::ProjectEffectState& effects,
+    const std::string& samplePath) {
     const float attackRatio =
         (track.envelope.attackSeconds -
          pocket::AdEnvelopeSettings::MinAttackSeconds) /
@@ -1851,6 +1867,13 @@ std::vector<ScreenRow> soundRows(
              track.synth.engineType == pocket::SynthEngineType::Plaits ? 1.0F
                                                                       : 0.0F,
              track.synth.engineType == pocket::SynthEngineType::Plaits},
+            {"MODEL",
+             std::to_string(static_cast<int>(track.synth.model) + 1) + " " +
+                 pocket::audio::plaitsModelName(track.synth.model),
+             BarMode::Discrete,
+             static_cast<float>(track.synth.model) /
+                 static_cast<float>(pocket::TrackSynthSettings::ModelCount - 1),
+             track.synth.engineType == pocket::SynthEngineType::Plaits},
             {"PITCH", formatNumber("%.0f HZ", track.synth.pitchHz),
              BarMode::Unipolar, pitchRatio, true},
             {"MORPH", formatNumber("%.0f%%", track.synth.morph * 100.0),
@@ -1859,6 +1882,8 @@ std::vector<ScreenRow> soundRows(
              BarMode::Unipolar, track.synth.timbre, true},
             {"COLOR", formatNumber("%.0f%%", track.synth.color * 100.0),
              BarMode::Unipolar, track.synth.color, true},
+            {"SAMPLE", soundSampleLabel(samplePath), BarMode::None, 0.0F,
+             track.instrument == pocket::InstrumentType::Sampler},
             {"DLY TIME", std::to_string(effects.delayMilliseconds) + " MS",
              BarMode::Unipolar, delayTimeRatio, true},
             {"DLY FDBK",
@@ -1985,10 +2010,11 @@ std::vector<ScreenRow> systemRows(const pocket::platform::SystemSettings& settin
 
 void renderModal(SDL_Renderer* renderer,
                  const pocket::ui::ThemePalette& palette,
-                 const pocket::ui::UiState& state,
+                 const pocket::ui::UiController& ui,
                  std::int32_t width,
                  std::int32_t height) {
     using pocket::ui::Modal;
+    const auto& state = ui.state();
     if (state.modal == Modal::None) {
         return;
     }
@@ -2020,9 +2046,109 @@ void renderModal(SDL_Renderer* renderer,
                    static_cast<std::size_t>(state.discardChoice), width,
                    height);
     } else {
-        renderRows(renderer, palette, "SELECT FILE", "ESC:BACK", {}, 99, width,
-                   height);
+        const auto& browser = ui.fileBrowser();
+        const std::size_t visible = std::max<std::size_t>(
+            6, static_cast<std::size_t>(std::max<std::int32_t>(1, height)) / 34);
+        const std::size_t start =
+            browser.cursor >= visible ? browser.cursor - visible + 1 : 0;
+        std::vector<ScreenRow> rows;
+        rows.reserve(visible);
+        for (std::size_t index = start;
+             index < browser.entries.size() && index < start + visible;
+             ++index) {
+            const auto& entry = browser.entries[index];
+            rows.push_back({entry.name, entry.detail, BarMode::None, 0.0F,
+                            entry.directory});
+        }
+        if (rows.empty()) {
+            rows.push_back(
+                {"NO WAV FILES", "", BarMode::None, 0.0F, false});
+        }
+        const std::size_t selected =
+            browser.cursor >= start ? browser.cursor - start : 0;
+        renderRows(renderer, palette, "SELECT WAV",
+                   "ENTER:OPEN  ESC:CANCEL", rows, selected, width, height);
     }
+}
+
+std::vector<pocket::ui::FileEntry> listSampleDirectory(
+    const std::string& directory, std::string& resolvedDirectory) {
+    namespace fs = std::filesystem;
+    std::vector<pocket::ui::FileEntry> entries;
+    std::error_code ec;
+    const fs::path requested =
+        directory.empty() ? fs::current_path(ec) : fs::path(directory);
+    const fs::path base = fs::absolute(requested, ec);
+    if (ec || !fs::is_directory(base, ec)) {
+        resolvedDirectory = directory;
+        return entries;
+    }
+    resolvedDirectory = base.string();
+
+    const fs::path parent = base.parent_path();
+    if (!parent.empty() && parent != base) {
+        entries.push_back({"..", parent.string(), "<DIR>", true});
+    }
+
+    std::vector<fs::directory_entry> directories;
+    std::vector<fs::directory_entry> files;
+    for (const auto& entry : fs::directory_iterator(base, ec)) {
+        if (entry.is_directory(ec)) {
+            directories.push_back(entry);
+            continue;
+        }
+        auto extension = entry.path().extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+                       [](unsigned char c) {
+                           return static_cast<char>(std::tolower(c));
+                       });
+        if (entry.is_regular_file(ec) && extension == ".wav") {
+            files.push_back(entry);
+        }
+    }
+    const auto byName = [](const fs::directory_entry& a,
+                           const fs::directory_entry& b) {
+        return a.path().filename().string() < b.path().filename().string();
+    };
+    std::sort(directories.begin(), directories.end(), byName);
+    std::sort(files.begin(), files.end(), byName);
+    for (const auto& entry : directories) {
+        entries.push_back({entry.path().filename().string(),
+                           entry.path().string(), "<DIR>", true});
+    }
+    for (const auto& entry : files) {
+        entries.push_back({entry.path().filename().string(),
+                           entry.path().string(), "WAV", false});
+    }
+    return entries;
+}
+
+// Stores paths inside the working directory relative so projects stay
+// portable; everything else stays absolute.
+std::string portableSamplePath(const std::string& path) {
+    namespace fs = std::filesystem;
+    if (path.empty()) {
+        return {};
+    }
+    std::error_code ec;
+    const fs::path absolute = fs::absolute(fs::path(path), ec);
+    if (ec) {
+        return path;
+    }
+    const fs::path relative = absolute.lexically_relative(fs::current_path(ec));
+    if (!ec && !relative.empty()) {
+        const auto first = relative.begin();
+        if (first != relative.end() && first->string() != "..") {
+            return relative.string();
+        }
+    }
+    return absolute.string();
+}
+
+std::filesystem::path resolveSamplePath(const std::string& path) {
+    const std::filesystem::path stored(path);
+    return stored.is_relative() ? std::filesystem::current_path() / stored
+                                : stored;
 }
 
 void pushAllTrackAudioParameters(
@@ -2064,6 +2190,8 @@ void pushAllTrackAudioParameters(
                     settings.synth.color});
         queue.push({AudioParameter::TrackSynthEngineType, index,
                     static_cast<float>(settings.synth.engineType)});
+        queue.push({AudioParameter::TrackSynthModel, index,
+                    static_cast<float>(settings.synth.model)});
     }
 }
 
@@ -2119,6 +2247,7 @@ int runSdlApp(const AppOptions& options) {
             sequencer.setInstrument(track, pocket::InstrumentType::Synth);
         }
         pocket::TrackSynthSettings syn{};
+        syn.model = static_cast<std::uint8_t>(track);
         syn.pitchHz = PresetPitches[track];
         syn.morph = 0.20F + 0.10F * static_cast<float>(track);
         syn.timbre = 0.35F + 0.07F * static_cast<float>(track);
@@ -2180,6 +2309,11 @@ int runSdlApp(const AppOptions& options) {
         std::cerr << "Loaded " << count << " WAV sample(s) from " << samplesDir
                   << '\n';
     }
+    std::string sampleBrowserDirectory = samplesDir;
+    if (sampleBrowserDirectory.empty()) {
+        std::error_code ec;
+        sampleBrowserDirectory = std::filesystem::current_path(ec).string();
+    }
     bool audioRunning = false;
     if (options.capturePath.empty() || options.autoPlay) {
         const auto& audioSettings = ui.systemSettings().audio;
@@ -2221,6 +2355,29 @@ int runSdlApp(const AppOptions& options) {
         ui.resyncFromSequencer();
         ui.setEffects(data.effects);
         ui.setModified(false);
+        for (std::size_t track = 0; track < pocket::TrackCount; ++track) {
+            if (data.formatVersion < 9) {
+                // v6-v8 projects never described samples; keep whatever the
+                // --samples directory or a previous selection loaded.
+                continue;
+            }
+            const auto& storedPath = data.tracks[track].samplePath;
+            std::string sampleError;
+            bool assigned = false;
+            if (storedPath.empty()) {
+                assigned = engine.useBuiltinSample(track, &sampleError);
+            } else {
+                assigned = engine.loadSampleFile(
+                    track, resolveSamplePath(storedPath), &sampleError);
+                if (!assigned) {
+                    assigned = engine.useBuiltinSample(track, &sampleError);
+                }
+            }
+            if (!assigned) {
+                std::cerr << "Track " << (track + 1)
+                          << " sample not loaded: " << sampleError << '\n';
+            }
+        }
         if (audioRunning) {
             engine.syncSequencer(sequencer);
             pushAllTrackAudioParameters(ui, engine.parameterQueue());
@@ -2246,15 +2403,21 @@ int runSdlApp(const AppOptions& options) {
         }
         case ProjectRequest::SaveProject:
         case ProjectRequest::SaveProjectAs:
-            if (pocket::project::saveProjectFile(
-                    projectPath,
-                    pocket::project::captureProject(
-                        sequencer, ui.state().audioTrackSettings, &ui.effects()),
-                    &error)) {
-                ui.setModified(false);
-                setStatus("SAVED");
-            } else {
-                setStatus("SAVE FAILED: " + error);
+            {
+                auto data = pocket::project::captureProject(
+                    sequencer, ui.state().audioTrackSettings, &ui.effects());
+                for (std::size_t track = 0; track < pocket::TrackCount;
+                     ++track) {
+                    data.tracks[track].samplePath =
+                        portableSamplePath(engine.samplePath(track));
+                }
+                if (pocket::project::saveProjectFile(projectPath, data,
+                                                     &error)) {
+                    ui.setModified(false);
+                    setStatus("SAVED");
+                } else {
+                    setStatus("SAVE FAILED: " + error);
+                }
             }
             break;
         case ProjectRequest::LoadProject: {
@@ -2271,6 +2434,34 @@ int runSdlApp(const AppOptions& options) {
     const auto dispatchUi = [&](const pocket::ui::ActionEvent& event) {
         ui.dispatch(event);
         handleProjectRequest(ui.takeProjectRequest());
+        if (ui.takeFileBrowserRequest() ==
+            pocket::ui::FileBrowserRequest::Scan) {
+            std::string scanDirectory = ui.fileBrowser().directory;
+            if (scanDirectory.empty()) {
+                scanDirectory = sampleBrowserDirectory;
+            }
+            auto entries =
+                listSampleDirectory(scanDirectory, sampleBrowserDirectory);
+            if (entries.empty()) {
+                setStatus("CANNOT READ " + scanDirectory);
+            }
+            ui.setFileBrowserEntries(sampleBrowserDirectory,
+                                     std::move(entries));
+        }
+        std::string chosenSample;
+        std::size_t chosenTrack = 0;
+        if (ui.takeChosenSample(chosenSample, chosenTrack)) {
+            std::string sampleError;
+            if (engine.loadSampleFile(chosenTrack, chosenSample,
+                                      &sampleError)) {
+                setStatus(
+                    "T" + std::to_string(chosenTrack + 1) + " <- " +
+                    std::filesystem::path(chosenSample).filename().string());
+                ui.setModified(true);
+            } else {
+                setStatus("SAMPLE FAILED: " + sampleError);
+            }
+        }
         const auto settingsText =
             pocket::platform::serializeSettings(ui.systemSettings());
         if (settingsText != savedSettingsText) {
@@ -2664,6 +2855,7 @@ int runSdlApp(const AppOptions& options) {
             engine.updateLights();
             engine.updateMeters();
         }
+        engine.updateSampleRetirement();
 
         const pocket::ui::ThemePalette* palette =
             pocket::ui::paletteFor(ui.systemSettings().display.theme);
@@ -2719,10 +2911,12 @@ int runSdlApp(const AppOptions& options) {
             case pocket::ui::Screen::Sound: {
                 const std::int32_t vizH = std::max<std::int32_t>(88, height * 15 / 100);
                 renderRows(renderer, *palette, "SOUND",
-                           headerStatus, soundRows(selectedTrack, ui.effects()),
+                           headerStatus,
+                           soundRows(selectedTrack, ui.effects(),
+                                     engine.samplePath(trackIndex)),
                            static_cast<std::size_t>(ui.state().soundField),
                            width, height, vizH + 10,
-                           selectedTrack.instrument, selectedTrack.muted, 2, 6);
+                           selectedTrack.instrument, selectedTrack.muted, 2, 7);
                 drawSoundVisualizer(renderer, *palette, selectedTrack,
                                     ui.effects(), sequencer.isPlaying(),
                                     SDL_GetTicks64(), margin, bannerTop, bannerW,
@@ -2768,7 +2962,7 @@ int runSdlApp(const AppOptions& options) {
                            width, height);
                 break;
             }
-            renderModal(renderer, *palette, ui.state(), width, height);
+            renderModal(renderer, *palette, ui, width, height);
             if (!statusText.empty() && SDL_GetTicks64() < statusUntilMs) {
                 const auto barHeight = std::max(12, height / 26);
                 drawText(renderer, statusText, height / 48,

@@ -81,16 +81,28 @@ persist raw SDL or joystick button numbers in the shared profile.
   mute. Left/Right edits the focused field; length is 2–32, fill is
   1–length, offset is 0–31, and volume is 0–100. Reducing length clamps fill.
 - SOUND: Up/Down selects per-track Attack, Decay, Filter Enable, Filter
-  Cutoff, Synth Engine, Synth Pitch, Synth Morph, Synth Timbre, Synth Color,
-  Delay Time, Delay Feedback, and Delay Mix fields; Left/Right changes the
-  selected value. Attack spans 1–250 ms and Decay spans 20 ms–4 s. Coarse
-  changes are 10 ms for Attack, 100 ms for Decay, 10 Hz for synth pitch, and
-  1000 Hz for cutoff; fine changes are 1 ms, 10 ms, 1 Hz, and 100 Hz.
-  Cutoff spans 100 Hz–20 kHz and is limited below Nyquist during rendering.
+  Cutoff, Synth Engine, Plaits Model, Synth Pitch, Synth Morph, Synth Timbre,
+  Synth Color, Sample, Delay Time, Delay Feedback, and Delay Mix fields;
+  Left/Right changes the selected value. Attack spans 1–250 ms and Decay spans
+  20 ms–4 s. Coarse changes are 10 ms for Attack, 100 ms for Decay, 10 Hz for
+  synth pitch, and 1000 Hz for cutoff; fine changes are 1 ms, 10 ms, 1 Hz, and
+  100 Hz. Cutoff spans 100 Hz–20 kHz and is limited below Nyquist during
+  rendering.
   Filter Enable and Synth Engine are discrete: Left/Right and Confirm toggle
-  them between OFF/ON and BASIC-VA/PLAITS. The Plaits engine scans its sixteen
-  models through Morph; both engines run through the same per-track AD VCA and
-  filter. When an audio parameter queue is attached, supported edits are handed
+  them between OFF/ON and BASIC-VA/PLAITS. Plaits Model is an independent
+  index field (1-based number plus a short name, e.g. `1 VA`, `8 HIHAT`)
+  that wraps through all sixteen engines; the model applies only while the
+  engine is PLAITS, and Morph remains a continuous parameter *inside* the
+  selected model. Both engines run through the same per-track AD VCA and
+  filter.
+  The SAMPLE row shows the track's WAV file name or `BUILT-IN`. Confirm opens
+  the SELECT WAV browser; Up/Down moves the cursor, Confirm opens a directory
+  (with a `..` entry for the parent) or assigns the highlighted `.wav` to the
+  selected track, and Back cancels. The sample is decoded on the UI thread and
+  handed to the audio thread through the sampler's bounded swap queue, so it
+  can be replaced during playback; the previous buffer is released only after
+  the audio thread acknowledges the swap.
+  When an audio parameter queue is attached, supported edits are handed
   to the audio callback at the next block boundary. If the bounded queue is
   full, the edit is rejected and `UiState::audioParameterRejected` is set for
   the frontend to report. `UiState::audioTrackSettings` retains the UI-side
@@ -125,10 +137,11 @@ persist raw SDL or joystick button numbers in the shared profile.
   theme (Quiet Dark → Warm Paper → High Contrast → Quiet Dark); this preference
   is independent of project dirty state. The controller can skip categories
   unsupported by its supplied platform capabilities.
-- Help, project-menu, file-selector, and discard-confirmation modal states
-  exist. The project menu emits explicit requests for a future project
-  manager; file browsing, serialization, and confirmation rendering are not
-  implemented. Unsaved-change confirmation defaults to Cancel, and the UI
+- Help, project-menu, WAV file-selector, and discard-confirmation modal states
+  exist. The project menu emits explicit requests for the project manager;
+  save/load serialization and scan-free rendering are implemented in the SDL
+  app. Directory enumeration is requested by the controller and performed by
+  the app layer. Unsaved-change confirmation defaults to Cancel, and the UI
   does not clear its modified flag until the project layer reports success.
 
 ## Automated GUI checks
@@ -179,7 +192,13 @@ Events fire 300 ms apart starting at 400 ms. Examples:
   the next press stops, releasing the key does nothing, and repeated key-down
   does not toggle again.
 - [ ] On SOUND, toggle Synth Engine with Left/Right and Confirm; verify BASIC-VA
-  and PLAITS both sound and that Morph scans all sixteen Plaits models.
+  and PLAITS both sound and that the MODEL field selects each of the sixteen
+  Plaits engines independently of Morph.
+- [ ] On SOUND, open SAMPLE, browse directories, assign a WAV to a track, and
+  verify the row shows the file name. Save the project, reload it, and confirm
+  the same sample is restored; verify a missing path falls back to BUILT-IN.
+- [ ] Replace a track's sample while playback is running and verify no dropout,
+  callback failure, or use-after-free of the previous buffer.
 - [ ] Lose window focus while holding a D-pad direction; verify repeat stops and
   no transport state is left latched.
 - [ ] Mute/unmute using X and M.

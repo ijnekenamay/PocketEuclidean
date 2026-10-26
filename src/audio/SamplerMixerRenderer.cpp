@@ -80,6 +80,7 @@ bool SamplerMixerRenderer::syncSynthVoice(std::size_t track) noexcept {
     params.timbre = synthSettings_[track].timbre;
     params.color = synthSettings_[track].color;
     params.engine = synthSettings_[track].engineType;
+    params.model = synthSettings_[track].model;
     return synthVoices_->updateParameters(track, params);
 }
 
@@ -210,6 +211,10 @@ bool SamplerMixerRenderer::applyCommand(
     case AudioParameter::TrackSynthEngineType:
         synthSettings_[track].engineType = static_cast<SynthEngineType>(static_cast<int>(command.value));
         return syncSynthVoice(track);
+    case AudioParameter::TrackSynthModel:
+        synthSettings_[track].model =
+            static_cast<std::uint8_t>(command.value);
+        return syncSynthVoice(track);
     case AudioParameter::DelayTimeMs:
     case AudioParameter::DelayFeedback:
     case AudioParameter::DelayMix:
@@ -229,6 +234,10 @@ bool SamplerMixerRenderer::render(float* interleavedStereo,
         masterVolumePercent_ > 100) {
         return false;
     }
+
+    // Sample swaps arrive from the UI thread through the voice pool's bounded
+    // queue and are applied here, before any voice renders this segment.
+    voices_.applyPendingSamples();
 
     for (std::size_t track = 0; track < TrackCount; ++track) {
         if (!envelopes_[track].isActive()) {

@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include <cmath>
+#include <algorithm>
 #include <fstream>
 #include <locale>
 #include <sstream>
@@ -19,6 +20,62 @@ constexpr int LfoDivisionMax = static_cast<int>(LfoDivision::Count) - 1;
 constexpr int DestinationMax = static_cast<int>(ModulationDestination::Offset);
 constexpr int JitterModeMax = static_cast<int>(JitterMode::Mix);
 constexpr int JitterRateMax = static_cast<int>(JitterRate::Whole);
+
+// Project tokens are whitespace-separated, so paths are percent-encoded.
+std::string encodePath(const std::string& path) {
+    static constexpr char Hex[] = "0123456789ABCDEF";
+    std::string encoded;
+    for (const unsigned char character : path) {
+        const bool safe =
+            (character >= 'A' && character <= 'Z') ||
+            (character >= 'a' && character <= 'z') ||
+            (character >= '0' && character <= '9') || character == '.' ||
+            character == '_' || character == '-' || character == '/' ||
+            character == '\\' || character == ':';
+        if (safe) {
+            encoded.push_back(static_cast<char>(character));
+        } else {
+            encoded.push_back('%');
+            encoded.push_back(Hex[character >> 4]);
+            encoded.push_back(Hex[character & 0x0F]);
+        }
+    }
+    return encoded;
+}
+
+int hexValue(char character) noexcept {
+    if (character >= '0' && character <= '9') {
+        return character - '0';
+    }
+    if (character >= 'A' && character <= 'F') {
+        return character - 'A' + 10;
+    }
+    if (character >= 'a' && character <= 'f') {
+        return character - 'a' + 10;
+    }
+    return -1;
+}
+
+bool decodePath(const std::string& encoded, std::string& path) {
+    path.clear();
+    for (std::size_t index = 0; index < encoded.size(); ++index) {
+        if (encoded[index] != '%') {
+            path.push_back(encoded[index]);
+            continue;
+        }
+        if (index + 2 >= encoded.size()) {
+            return false;
+        }
+        const int high = hexValue(encoded[index + 1]);
+        const int low = hexValue(encoded[index + 2]);
+        if (high < 0 || low < 0) {
+            return false;
+        }
+        path.push_back(static_cast<char>(high * 16 + low));
+        index += 2;
+    }
+    return path.size() <= 1024 && path.find('\0') == std::string::npos;
+}
 
 bool fail(std::string* error, const std::string& message) {
     if (error != nullptr) {
@@ -149,18 +206,42 @@ bool parseTrackLine(const std::string& key, std::istringstream& in,
     }
     if (field == "synth") {
         // Format v7 added the per-track engine type as the first field.
-        // Older files stored only the four continuous parameters.
-        if (version >= 7) {
-            int engineType = 0;
-            if (!readInt(in, engineType, 0, 1)) {
-                return false;
-            }
-            track.synth.engineType = static_cast<SynthEngineType>(engineType);
+        // Format v9 appended the explicit Plaits model after it. Older files
+        // only stored the four continuous parameters.
+        int engineType = 0;
+        int model = 0;
+        if (version >= 7 && !readInt(in, engineType, 0, 1)) {
+            return false;
         }
-        return readFloat(in, track.synth.pitchHz) &&
-               readFloat(in, track.synth.morph) &&
-               readFloat(in, track.synth.timbre) &&
-               readFloat(in, track.synth.color);
+        if (version >= 9 && !readInt(in, model, 0,
+                                     TrackSynthSettings::ModelCount - 1)) {
+            return false;
+        }
+        if (!readFloat(in, track.synth.pitchHz) ||
+            !readFloat(in, track.synth.morph) ||
+            !readFloat(in, track.synth.timbre) ||
+            !readFloat(in, track.synth.color)) {
+            return false;
+        }
+        track.synth.engineType = static_cast<SynthEngineType>(engineType);
+        if (version >= 9) {
+            track.synth.model = static_cast<std::uint8_t>(model);
+        } else {
+            // v6-v8 used morph as the model selector inside Plaits; keep the
+            // same model so migrated projects sound identical.
+            track.synth.model = static_cast<std::uint8_t>(std::clamp(
+                static_cast<int>(std::floor(track.synth.morph * 15.0F)), 0,
+                TrackSynthSettings::ModelCount - 1));
+        }
+        return true;
+    }
+    if (field == "sample") {
+        std::string token;
+        if (in >> token) {
+            return decodePath(token, track.samplePath);
+        }
+        track.samplePath.clear();
+        return true;
     }
     return false;
 }
@@ -266,8 +347,10 @@ std::string serializeProject(const ProjectData& project) {
         out << prefix << "filter " << int(t.filter.enabled) << ' '
             << t.filter.cutoffHz << '\n';
         out << prefix << "synth " << static_cast<int>(t.synth.engineType) << ' '
-            << t.synth.pitchHz << ' ' << t.synth.morph << ' ' << t.synth.timbre << ' '
+            << static_cast<int>(t.synth.model) << ' ' << t.synth.pitchHz << ' '
+            << t.synth.morph << ' ' << t.synth.timbre << ' '
             << t.synth.color << '\n';
+        out << prefix << "sample " << encodePath(t.samplePath) << '\n';
     }
     const auto& fx = project.effects;
     out << "fx " << fx.delayMilliseconds << ' ' << fx.delayFeedback << ' '

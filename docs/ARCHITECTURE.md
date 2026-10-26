@@ -95,7 +95,9 @@ timeline; call their `reset()` methods while audio production is stopped.
 - Track phase, master tick position, play state, and LFO runtime phase/seed are
   runtime state. They are not part of persistent project configuration.
 - `project::ProjectData` stores musical project state and has its own format
-  version.
+  version (currently 9). v9 adds an explicit Plaits model per track and a
+  per-track sample path; the reader migrates v6–v8 by deriving the model from
+  morph and treating missing sample data as built-in.
 - `platform::SystemSettings` stores global defaults and platform preferences
   with a different format version. It must not be embedded in project files.
 - The selected UI theme is a global display preference, not project data.
@@ -107,9 +109,10 @@ timeline; call their `reset()` methods while audio production is stopped.
 - `ui::UiState` stores screen, focus, modal, and selection state. A UI screen
   change must not change the master-clock phase.
 
-Project and settings serialization are not implemented. `ProjectData` and
-`SystemSettings` are configuration models, not a promise that saving or
-migration already works.
+Project files (`ProjectStore`) serialize the v9 musical model with strict
+field validation and percent-encoded sample paths; settings files
+(`SettingsStore`) serialize the separate v3 system model. Both reject invalid
+input instead of guessing.
 
 ## Clock, events, and modulation
 
@@ -211,9 +214,10 @@ signals are summed with the dry master before the global delay.
 Attach one `audio::AudioParameterQueue` to both `ui::UiController` and
 `audio::AudioCallbackProcessor` to transfer supported live changes without
 sharing those mutable audio settings with the callback. The fixed-capacity
-64-command SPSC queue is produced by the UI thread and drained by the audio
-thread at callback block boundaries. It carries track volume, pan, mute,
-Attack, Decay, filter enable/cutoff, and master volume. If full, `push()`
+128-command SPSC queue is produced by the UI thread and drained by the audio
+thread at callback block boundaries. It carries track volume, pan, mute, Attack,
+Decay, filter enable/cutoff, synth pitch/morph/timbre/color, synth engine and
+Plaits model, reverb/delay sends, delay time/feedback/mix, and master volume. If full, `push()`
 rejects the newest edit; `UiState::audioParameterRejected` exposes that
 condition and the UI-side value is left unchanged. With the queue attached,
 `UiState::audioTrackSettings` is the UI-owned shadow for these controls; it
@@ -237,25 +241,32 @@ before the obtained SDL buffer deadline; rendering and audio must not allocate
 or wait on one another in steady state.
 
 `audio::SamplerVoicePool` provides up to 32 fixed-size mono PCM voices. Samples
-are immutable views owned by the loader and must remain alive until all voices
-using them have stopped; assigning or replacing them is setup work, never
-callback work. It linearly interpolates to the output sample rate and supports
-a bounded 0.25–4.0 playback-rate multiplier. When all slots are active, a new
-trigger steals the oldest voice, with pool order as the deterministic tie
-break. Rendering one track uses caller-owned output storage and performs no
-allocation or file access. `audio::WavDecoder` parses bounded RIFF/WAVE chunks
-and decodes PCM 8/16/24/32-bit or IEEE float32 mono/stereo, including PCM and
-float WAVEFORMATEXTENSIBLE, into caller-provided mono float storage. Stereo is
-averaged to mono, finite float samples are clamped to [-1, 1], and malformed,
-unsupported, non-finite, or oversized input is rejected before output is
-modified. One decoded WAV is capped at 64 MiB; the loader must additionally
-be constrained by `audio::SampleCache`, which uses a caller-owned PCM arena and
-fixed eight-track metadata to enforce an aggregate 64 MiB cap without
-allocation. It performs first-fit allocation into existing gaps and rejects a
-load if no single gap can hold the decoded sample; it never compacts or moves
-existing samples. Load and unload are setup operations and may only run while
-the audio callback and all voices referencing that track are stopped. File I/O
-and arena allocation belong to the loader and must run outside the audio
+are immutable views owned by the loader and must stay alive until every voice
+using them has stopped. A swap at runtime is queued by the UI thread through a
+bounded SPSC request ring (`queueSample`, capacity 32); the audio thread drains
+it in `applyPendingSamples()` at the start of a block, stops that track's old
+voices, publishes the new view, and acknowledges with a monotonically
+increasing id (`appliedSampleId`). The UI keeps the replaced buffer alive until
+that acknowledgement, then releases it, which makes use-after-free impossible
+without locking the callback. It linearly interpolates to the output sample
+rate and supports a bounded 0.25–4.0 playback-rate multiplier. When all slots
+are active, a new trigger steals the oldest voice, with pool order as the
+deterministic tie break. Rendering one track uses caller-owned output storage
+and performs no allocation or file access. `audio::WavDecoder` parses bounded
+RIFF/WAVE chunks and decodes PCM 8/16/24/32-bit or IEEE float32 mono/stereo,
+including PCM and float WAVEFORMATEXTENSIBLE, into caller-provided mono float
+storage. Stereo is averaged to mono, finite float samples are clamped to
+[-1, 1], and malformed, unsupported, non-finite, or oversized input is rejected
+before output is modified. One decoded WAV is capped at 64 MiB.
+
+`audio::SampleCache` remains a tested fixed-arena allocator that uses a
+caller-owned PCM arena and fixed eight-track metadata to enforce an aggregate
+64 MiB cap without allocation. It performs first-fit allocation into existing
+gaps and rejects a load if no single gap can hold the decoded sample; it never
+compacts or moves existing samples. The desktop app no longer routes live
+selection through it: each track owns its decoded `std::vector<float>` on the
+UI thread and swaps it through the voice pool queue described above. File I/O,
+decoding, and heap work belong to the loader and must run outside the audio
 callback.
 
 `audio::SamplerMixerRenderer` connects the sequencer, sampler/synth voices, and
@@ -273,15 +284,18 @@ source voice. Attack is bounded to 1–250 ms and decay to 20 ms–4 s. Each tra
 also has an optional one-pole low-pass, bounded to 100 Hz–20 kHz and clamped
 below Nyquist for the obtained sample rate; disabled tracks bypass it.
 Coefficient work is per block/setting change, while processing is fixed-cost
-per sample. Delay effects are not implemented. The renderer, voice pool, mixer,
+per sample. The renderer drains pending sample swaps at the top of each block.
+Delay effects are not implemented. The renderer, voice pool, mixer,
 synth rack, and sequencer are audio-thread owned while the device is open.
-Sample load/unload and synth configuration are setup-only and require audio
-production to be stopped.
+Synth configuration and sample-buffer *final release* are setup-only; a
+decoded WAV may be swapped in during playback only through
+`SamplerVoicePool`'s request queue and acknowledgement handshake.
 
-The optional `AudioParameterQueue` is a fixed 64-command SPSC transfer for
-track volume, pan, mute, envelope Attack/Decay, filter enable/cutoff, and
-master volume. The UI thread produces commands and the callback drains them at
-the beginning of each block. A full queue rejects the new command; the UI
+The optional `AudioParameterQueue` is a fixed 128-command SPSC transfer for
+track volume, pan, mute, envelope Attack/Decay, filter enable/cutoff, synth
+pitch/morph/timbre/color, synth engine and model, effect sends, delay
+time/feedback/mix, and master volume. The UI thread produces commands and the
+callback drains them at the beginning of each block. A full queue rejects the new command; the UI
 controller exposes this through `UiState::audioParameterRejected` and keeps a
 separate `UiState::audioTrackSettings` shadow rather than writing those
 audio-owned values into the sequencer during playback. Configure the same
@@ -313,8 +327,10 @@ suitability.
 `PlaitsVoice` is a MIT-licensed multi-engine implementation inspired by
 Mutable Instruments Plaits. It provides 16 synthesis engines (Virtual Analog,
 Wavetable, FM, Additive, Chord, Speech, Bass Drum, Snare Drum, Hi-Hat, Granular,
-Karplus-Strong String, Modal, Noise, Particle, Phase Distortion, Wave Shaping)
-with engine selection via the morph parameter. Each engine maps the common
+Karplus-Strong String, Modal, Noise, Particle, Phase Distortion, Wave Shaping).
+The engine is selected by `SynthParameters::model` (0–15, short names in
+`audio/PlaitsModels.h`), while `morph` remains a continuous per-model control;
+both were previously folded into morph alone. Each engine maps the common
 synth parameters (pitch, timbre, morph, color, level) to engine-specific
 controls. All oscillator, noise, delay-line, and envelope state is per voice, so
 tracks never share DSP state; envelopes use time since note-on rather than
@@ -322,12 +338,14 @@ oscillator phase.
 
 `SelectableSynthVoice` is the per-track backend bound into `SynthVoiceRack`
 once at setup. It owns one `BasicVaVoice` and one `PlaitsVoice` and dispatches
-to the backend named by `SynthParameters::engine`. Engine changes therefore
-travel through the existing `AudioParameter::TrackSynthEngineType` queue entry
+to the backend named by `SynthParameters::engine`. Engine and model changes
+therefore travel through the existing
+`AudioParameter::TrackSynthEngineType` / `TrackSynthModel` queue entries
 on the audio thread instead of reconfiguring the rack from the UI thread while
 the callback is running. Both backends implement `ISynthVoice` and are
-selectable per-track via `TrackSynthSettings::engineType` (saved in project
-format v8; v7 files load with the stored engine, and v6 files load with
+selectable per-track via `TrackSynthSettings::engineType` and
+`TrackSynthSettings::model` (saved in project format v9; v6–v8 files derive the
+model from morph, v7 files load with the stored engine, and v6 files load with
 `BasicVa` as the default, without effect sends). Adding a third-party
 engine requires per-file license review and cross-platform
 build/resource-generation work, followed by measured eight-track callback

@@ -15,6 +15,9 @@ struct SynthParameters {
     float morph = 0.5F;
     float level = 0.5F;
     SynthEngineType engine = SynthEngineType::BasicVa;
+    // Plaits model index (0..PlaitsModelCount-1). Independent of morph, which
+    // keeps its continuous per-model role.
+    std::uint8_t model = 0;
 };
 
 class ISynthVoice {

@@ -169,6 +169,7 @@ bool Sequencer::setSynth(
     if (index >= TrackCount || !std::isfinite(synth.pitchHz) ||
         synth.pitchHz < TrackSynthSettings::MinPitchHz ||
         synth.pitchHz > TrackSynthSettings::MaxPitchHz ||
+        synth.model >= TrackSynthSettings::ModelCount ||
         !std::isfinite(synth.morph) || synth.morph < 0.0F ||
         synth.morph > 1.0F || !std::isfinite(synth.timbre) ||
         synth.timbre < 0.0F || synth.timbre > 1.0F ||

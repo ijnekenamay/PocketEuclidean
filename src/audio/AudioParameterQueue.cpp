@@ -77,6 +77,12 @@ bool AudioParameterQueue::isValid(
     case AudioParameter::TrackSynthEngineType:
         return command.track < TrackCount &&
                (command.value == 0.0F || command.value == 1.0F);
+    case AudioParameter::TrackSynthModel:
+        return command.track < TrackCount &&
+               command.value >= 0.0F &&
+               command.value <
+                   static_cast<float>(TrackSynthSettings::ModelCount) &&
+               std::floor(command.value) == command.value;
     case AudioParameter::TrackReverbSend:
     case AudioParameter::TrackDelaySend:
         return command.track < TrackCount && command.value >= 0.0F &&

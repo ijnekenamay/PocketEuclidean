@@ -45,8 +45,11 @@ enum class SynthEngineType : std::uint8_t {
 struct TrackSynthSettings {
     static constexpr float MinPitchHz = 20.0F;
     static constexpr float MaxPitchHz = 2000.0F;
+    static constexpr int ModelCount = 16;
 
     SynthEngineType engineType = SynthEngineType::BasicVa;
+    // Selected Plaits model. morph stays a continuous parameter inside it.
+    std::uint8_t model = 0;
     float pitchHz = 110.0F;
     float morph = 0.5F;
     float timbre = 0.5F;

@@ -22,6 +22,7 @@ enum class AudioParameter : std::uint8_t {
     TrackSynthTimbre,
     TrackSynthColor,
     TrackSynthEngineType,
+    TrackSynthModel,
     TrackReverbSend,
     TrackDelaySend,
     DelayTimeMs,

@@ -888,6 +888,31 @@ void testSamplerVoicePool() {
     expect(!voices.renderTrack(0, unchanged.data(), unchanged.size(), 0) &&
                unchanged[0] == 7.0F && unchanged[1] == 8.0F,
            "invalid render requests fail without partially changing output");
+
+    const std::array<float, 3> queued{{0.1F, 0.2F, 0.3F}};
+    expect(!voices.queueSample(pocket::TrackCount,
+                               {queued.data(), queued.size(), 48000}, 7) &&
+               !voices.queueSample(0, {nullptr, 1, 48000}, 7) &&
+               !voices.queueSample(0, {queued.data(), 0, 48000}, 7) &&
+               !voices.queueSample(0, {queued.data(), queued.size(), 48000}, 0),
+           "queued sample swaps reject invalid requests");
+    expect(voices.assignSample(0, {heldSample.data(), heldSample.size(), 48000}) &&
+               voices.trigger(0) && voices.activeVoiceCount(0) == 1 &&
+               voices.appliedSampleId(0) == 0,
+           "prepare an active voice before queueing a sample swap");
+    expect(voices.queueSample(0, {queued.data(), queued.size(), 48000}, 11),
+           "sample swap is accepted on the UI-side queue");
+    voices.applyPendingSamples();
+    expect(voices.appliedSampleId(0) == 11 &&
+               voices.activeVoiceCount(0) == 0 &&
+               voices.sample(0).frameCount == queued.size(),
+           "applying a swap stops old voices and publishes the sample id");
+    std::array<float, 3> queuedOutput{};
+    expect(voices.trigger(0) &&
+               voices.renderTrack(0, queuedOutput.data(), queuedOutput.size(),
+                                  48000) &&
+               queuedOutput == queued,
+           "the queued sample is audible after the swap");
 }
 
 void testSynthVoiceRack() {
@@ -1042,7 +1067,8 @@ void testSelectableSynthVoice() {
     voice.noteOff();
 
     for (int engine = 0; engine < 16; ++engine) {
-        parameters.morph = static_cast<float>(engine) / 15.0F;
+        parameters.model = static_cast<std::uint8_t>(engine);
+        parameters.morph = 0.5F;
         parameters.engine = SynthEngineType::Plaits;
         if (!voice.setParameters(parameters) || !voice.noteOn(1.0F)) {
             expect(false, "Plaits engine accepts parameters and triggers");
@@ -1067,6 +1093,11 @@ void testSelectableSynthVoice() {
                    " is audible, finite, and bounded");
         voice.noteOff();
     }
+
+    parameters.model = 16;
+    parameters.engine = SynthEngineType::Plaits;
+    expect(!voice.setParameters(parameters),
+           "Plaits voice rejects an out-of-range model index");
 }
 
 void testSynthEngineParameterRouting() {
@@ -1915,6 +1946,7 @@ void testProjectStoreRoundTrip() {
     source.setFilter(5, {true, 3000.0F});
     auto synthSettings = source.track(5).synth;
     synthSettings.engineType = SynthEngineType::Plaits;
+    synthSettings.model = 11;
     synthSettings.pitchHz = 330.0F;
     expect(source.setSynth(5, synthSettings), "test synth settings are valid");
     LfoConfig lfo;
@@ -1935,11 +1967,15 @@ void testProjectStoreRoundTrip() {
     source.setDelaySend(3, 0.65F);
 
     const auto original = project::captureProject(source);
-    const auto text = project::serializeProject(original);
+    auto originalWithSample = original;
+    originalWithSample.tracks[4].samplePath = "samples/my kick %1.wav";
+    const auto text = project::serializeProject(originalWithSample);
     project::ProjectData parsed;
     std::string error;
     expect(project::parseProject(text, parsed, &error), "project text parses: " + error);
     expect(project::serializeProject(parsed) == text, "project text round-trips exactly");
+    expect(parsed.tracks[4].samplePath == "samples/my kick %1.wav",
+           "sample paths with spaces and percent signs round-trip");
 
     Sequencer restored;
     expect(project::applyProject(parsed, restored), "parsed project applies");
@@ -1954,8 +1990,9 @@ void testProjectStoreRoundTrip() {
     expect(restored.track(5).filter.enabled && restored.track(5).filter.cutoffHz == 3000.0F,
            "filter restored");
     expect(restored.track(5).synth.engineType == SynthEngineType::Plaits &&
+               restored.track(5).synth.model == 11 &&
                restored.track(5).synth.pitchHz == 330.0F,
-           "synth engine type and parameters restored");
+           "synth engine type, model, and parameters restored");
     expect(restored.track(6).lfos[0].waveform == LfoWaveform::SawDown &&
                restored.track(6).lfos[0].amount == -3 &&
                restored.track(6).lfos[0].destination == ModulationDestination::Fill,
@@ -1991,14 +2028,45 @@ void testProjectStoreRoundTrip() {
                legacy, &error),
            "version 6 project without an engine type loads: " + error);
     expect(legacy.tracks[0].synth.engineType == SynthEngineType::BasicVa &&
+               legacy.tracks[0].synth.model == 7 &&
                legacy.tracks[0].synth.pitchHz == 110.0F &&
                legacy.tracks[0].synth.morph == 0.5F &&
                legacy.tracks[0].synth.timbre == 0.4F &&
                legacy.tracks[0].synth.color == 0.3F,
-           "legacy synth line migrates to BasicVA with stored parameters");
+           "legacy synth line migrates to BasicVA with morph-derived model");
     expect(legacy.tracks[0].reverbSend == 0.0F &&
                legacy.tracks[0].delaySend == 0.0F,
            "version 6 projects load with zero effect sends");
+
+    project::ProjectData v8Legacy;
+    expect(project::parseProject(
+               "PocketEuclideanProject\n"
+               "version 8\n"
+               "tempo 120\n"
+               "track.0.synth 1 220 0.2 0.4 0.3\n"
+               "track.1.sample %E3%82%AD%E3%83%83%E3%82%AF.wav\n",
+               v8Legacy, &error),
+           "version 8 projects still load: " + error);
+    expect(v8Legacy.tracks[0].synth.engineType == SynthEngineType::Plaits &&
+               v8Legacy.tracks[0].synth.model == 3,
+           "version 8 Plaits morph migrates to the matching model");
+    expect(v8Legacy.tracks[0].samplePath.empty(),
+           "version 8 projects start with built-in samples");
+    expect(v8Legacy.tracks[1].samplePath == "\xE3\x82\xAD\xE3\x83\x83\xE3\x82\xAF.wav",
+           "percent-encoded sample paths decode to UTF-8 bytes");
+
+    expect(!project::parseProject(
+               "PocketEuclideanProject\n"
+               "version 9\n"
+               "track.0.synth 1 16 110 0.5 0.4 0.3\n",
+               untouched),
+           "version 9 rejects an out-of-range model index");
+    expect(!project::parseProject(
+               "PocketEuclideanProject\n"
+               "version 9\n"
+               "track.0.sample bad%GGpath.wav\n",
+               untouched),
+           "version 9 rejects malformed path escapes");
     expect(!project::parseProject(
                "PocketEuclideanProject\n"
                "version 7\n"
@@ -2013,8 +2081,8 @@ void testProjectStoreRoundTrip() {
 
     const auto path = (std::filesystem::temp_directory_path() / "pocket_test_project" /
                        "project.pec").string();
-    expect(project::saveProjectFile(path, original, &error), "save file: " + error);
-    expect(project::saveProjectFile(path, original, &error), "overwrite file: " + error);
+    expect(project::saveProjectFile(path, originalWithSample, &error), "save file: " + error);
+    expect(project::saveProjectFile(path, originalWithSample, &error), "overwrite file: " + error);
     project::ProjectData loaded;
     expect(project::loadProjectFile(path, loaded, &error), "load file: " + error);
     expect(project::serializeProject(loaded) == text, "file round-trips");

@@ -695,6 +695,78 @@ void testSynthEngineSelection() {
     expect(ui.effectiveTrackState(0).synth.engineType ==
                SynthEngineType::BasicVa,
            "confirm toggles the discrete engine field back to BASIC-VA");
+
+    ui.dispatch({Action::NavDown});
+    expect(ui.state().soundField == SoundField::Model,
+           "SOUND navigation reaches the Plaits model field");
+    ui.dispatch({Action::NavRight});
+    expect(ui.effectiveTrackState(0).synth.model == 1,
+           "right selects the next Plaits model");
+    audio::AudioParameterCommand modelCommand;
+    while (queue.pop(modelCommand) &&
+           modelCommand.parameter != audio::AudioParameter::TrackSynthModel) {
+    }
+    expect(modelCommand.parameter == audio::AudioParameter::TrackSynthModel &&
+               modelCommand.track == 0 && modelCommand.value == 1.0F,
+           "model change is published through the audio parameter queue");
+    ui.dispatch({Action::NavLeft});
+    ui.dispatch({Action::NavLeft});
+    expect(ui.effectiveTrackState(0).synth.model == 15,
+           "model field wraps from zero to the last model");
+}
+
+void testSampleBrowser() {
+    using namespace pocket;
+    using namespace pocket::ui;
+
+    Sequencer sequencer;
+    UiController ui(sequencer);
+    ui.dispatch({Action::ScreenNext}); // Edit
+    ui.dispatch({Action::ScreenNext}); // Sound
+    for (int i = 0; i < 10; ++i) {
+        ui.dispatch({Action::NavDown});
+    }
+    expect(ui.state().soundField == SoundField::Sample,
+           "SOUND navigation reaches the sample field");
+
+    ui.dispatch({Action::Confirm});
+    expect(ui.state().modal == Modal::FileSelector &&
+               ui.fileBrowser().active,
+           "confirm on SAMPLE opens the WAV browser");
+    expect(ui.takeFileBrowserRequest() == FileBrowserRequest::Scan,
+           "opening the browser asks the app layer for a directory listing");
+
+    ui.setFileBrowserEntries(
+        "C:/wav",
+        {{"..", "C:/", "<DIR>", true},
+         {"kick.wav", "C:/wav/kick.wav", "WAV", false},
+         {"snare.wav", "C:/wav/snare.wav", "WAV", false}});
+    ui.dispatch({Action::NavUp});
+    expect(ui.fileBrowser().cursor == 0,
+           "file cursor clamps at the first entry");
+    ui.dispatch({Action::NavDown});
+    ui.dispatch({Action::NavDown});
+    ui.dispatch({Action::NavDown});
+    expect(ui.fileBrowser().cursor == 2,
+           "file cursor clamps at the last entry");
+
+    ui.dispatch({Action::Confirm});
+    std::string chosenPath;
+    std::size_t chosenTrack = 99;
+    expect(ui.state().modal == Modal::None &&
+               ui.takeChosenSample(chosenPath, chosenTrack) &&
+               chosenPath == "C:/wav/snare.wav" && chosenTrack == 0,
+           "confirm on a WAV closes the browser and reports the track and path");
+
+    ui.dispatch({Action::Confirm});
+    ui.dispatch({Action::NavUp});
+    ui.dispatch({Action::Confirm});
+    expect(ui.takeFileBrowserRequest() == FileBrowserRequest::Scan &&
+               ui.fileBrowser().directory == "C:/",
+           "confirm on a directory asks the app layer to rescan it");
+    ui.dispatch({Action::Back});
+    expect(ui.state().modal == Modal::None && !ui.fileBrowser().active,
+           "back closes the WAV browser");
 }
 
 void testUiAudioParameterQueue() {
@@ -1101,7 +1173,7 @@ void testEffectiveTrackStateAndTempoControls() {
     synthDelayUi.setAudioParameterQueue(&synthDelayQueue);
     synthDelayUi.dispatch({Action::ScreenNext}); // Edit
     synthDelayUi.dispatch({Action::ScreenNext}); // Sound
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
         synthDelayUi.dispatch({Action::NavDown});
     }
     expect(synthDelayUi.state().soundField == SoundField::Pitch,
@@ -1116,7 +1188,7 @@ void testEffectiveTrackStateAndTempoControls() {
     synthDelayUi.dispatch({Action::NavRight});
     expect(std::abs(synthDelayUi.effectiveTrackState(0).synth.morph - 0.55F) < 1e-4F,
            "live Synth Morph edit updates effectiveTrackState");
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         synthDelayUi.dispatch({Action::NavDown});
     }
     expect(synthDelayUi.state().soundField == SoundField::DelayTime,
@@ -1155,6 +1227,7 @@ int main() {
     testMainScreenDrawList();
     testTrackNavigationAndTransport();
     testSynthEngineSelection();
+    testSampleBrowser();
     testUiAudioParameterQueue();
     testScreensAndEditRanges();
     testModalsAndFineMode();

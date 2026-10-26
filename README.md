@@ -24,19 +24,21 @@ Each track's Euclidean step bar stretches elastically to 100% of the lane width 
 
 The repository currently provides a portable sequencer and modulation core,
 sampler/synth rendering path, mixer DSP, fixed-size audio/UI event queues,
-logical UI state/input handling, and platform interface contracts. It is not
-yet a complete playable application: SDL2 device/rendering integration,
-project/settings persistence, effects beyond the current low-pass filter, and
-device packaging are not complete.
+logical UI state/input handling, and platform interface contracts. The SDL2
+desktop shell renders all six screens, runs audio through SDL, saves and loads
+versioned projects and settings, and supports per-track WAV selection.
+Remaining gaps include device packaging, deeper effects routing, Save As /
+missing-sample recovery flows, and measured performance on target hardware.
 
 Build and test status is deliberately conservative. The portable core and both
 CTest executables have been built and run on Windows x86-64 with LLVM-MinGW
-Clang 23.1.3 and Ninja; all tests passed. This verifies the core and test
-programs, not a playable desktop application: the SDL2 application, rendered
-UI, and audio-device integration are not implemented yet. No handheld runtime
-is claimed as verified. The current Brick Pro ABI, compiler, sysroot, SDL2
-runtime, controller mapping, audio behavior, storage, and PortMaster/NextUI
-compatibility all require target validation.
+Clang 23.1.3 and Ninja; all tests passed. SOUND (MODEL / SAMPLE), the SELECT WAV
+browser, project v9 sample restore, and a live sample swap during playback were
+also checked with GUI captures. This still does not verify audible quality,
+long-run stability, or any handheld. No handheld runtime is claimed as verified.
+The current Brick Pro ABI, compiler, sysroot, SDL2 runtime, controller mapping,
+audio behavior, storage, and PortMaster/NextUI compatibility all require target
+validation.
 
 ## Getting started
 
@@ -96,7 +98,7 @@ Examples:
 .\build\windows\Debug\pocket_euclidean_app.exe --play --samples C:\path\to\wavs
 ```
 
-`--data <dir>`（既定 `./conf`）の `project.pec` に、Project menu（Select）の SAVE／LOAD／NEW で保存・読み込みできます。起動時に存在すれば自動で読み込みます。ファイル選択UIはまだなく、1スロットのみです。同じディレクトリの `settings.cfg` にはテーマとマスター音量などが自動保存されます。
+`--data <dir>`（既定 `./conf`）の `project.pec` に、Project menu（Select）の SAVE／LOAD／NEW で保存・読み込みできます。起動時に存在すれば自動で読み込みます。プロジェクト形式はv9で、トラックごとのPlaitsモデルとサンプルパスを保存します（v6–v8は読み込み時に移行）。プロジェクトファイル名のSave Asはまだなく、1スロットのみです。SOUND画面のSAMPLE行でSELECT WAVブラウザを開き、トラック別にWAVを選択できます。同じディレクトリの `settings.cfg` にはテーマとマスター音量などが自動保存されます。
 
 ```powershell
 # ハンドヘルド向けの起動オプション: 全画面、音声レート／バッファー指定。

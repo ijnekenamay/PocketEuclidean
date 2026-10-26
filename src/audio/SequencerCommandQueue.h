@@ -181,7 +181,8 @@ private:
     }
     static bool same(const TrackSynthSettings& a,
                      const TrackSynthSettings& b) {
-        return a.engineType == b.engineType && a.pitchHz == b.pitchHz &&
+        return a.engineType == b.engineType && a.model == b.model &&
+               a.pitchHz == b.pitchHz &&
                a.morph == b.morph && a.timbre == b.timbre &&
                a.color == b.color;
     }

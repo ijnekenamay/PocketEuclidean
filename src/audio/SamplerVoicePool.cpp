@@ -4,6 +4,12 @@
 
 namespace pocket::audio {
 
+SamplerVoicePool::SamplerVoicePool() noexcept {
+    for (auto& id : appliedSampleIds_) {
+        id.store(0, std::memory_order_relaxed);
+    }
+}
+
 bool SamplerVoicePool::assignSample(
     std::size_t track, const MonoSampleView& sample) noexcept {
     if (track >= samples_.size() || sample.samples == nullptr ||
@@ -20,6 +26,52 @@ bool SamplerVoicePool::assignSample(
     stopTrack(track);
     samples_[track] = sample;
     return true;
+}
+
+bool SamplerVoicePool::queueSample(std::size_t track,
+                                   const MonoSampleView& sample,
+                                   std::uint32_t id) noexcept {
+    if (track >= samples_.size() || sample.samples == nullptr ||
+        sample.frameCount == 0 || sample.frameCount > MaxSampleFrames ||
+        sample.sampleRate < 8000 || sample.sampleRate > 192000 || id == 0) {
+        return false;
+    }
+    const auto write = sampleWriteIndex_.load(std::memory_order_relaxed);
+    const auto read = sampleReadIndex_.load(std::memory_order_acquire);
+    if (write - read >= SampleQueueCapacity) {
+        return false;
+    }
+    sampleRequests_[write % SampleQueueCapacity] = {
+        static_cast<std::uint8_t>(track), sample, id};
+    sampleWriteIndex_.store(write + 1, std::memory_order_release);
+    return true;
+}
+
+void SamplerVoicePool::applyPendingSamples() noexcept {
+    auto read = sampleReadIndex_.load(std::memory_order_relaxed);
+    const auto write = sampleWriteIndex_.load(std::memory_order_acquire);
+    while (read != write) {
+        const auto& request = sampleRequests_[read % SampleQueueCapacity];
+        // The old buffer must not be referenced by any voice after this.
+        stopTrack(request.track);
+        samples_[request.track] = request.view;
+        appliedSampleIds_[request.track].store(request.id,
+                                               std::memory_order_release);
+        ++read;
+    }
+    sampleReadIndex_.store(read, std::memory_order_release);
+}
+
+std::uint32_t SamplerVoicePool::appliedSampleId(
+    std::size_t track) const noexcept {
+    if (track >= appliedSampleIds_.size()) {
+        return 0;
+    }
+    return appliedSampleIds_[track].load(std::memory_order_acquire);
+}
+
+MonoSampleView SamplerVoicePool::sample(std::size_t track) const noexcept {
+    return track < samples_.size() ? samples_[track] : MonoSampleView{};
 }
 
 bool SamplerVoicePool::trigger(std::size_t track,

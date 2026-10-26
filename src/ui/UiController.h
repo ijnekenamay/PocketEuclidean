@@ -10,6 +10,9 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace pocket::ui {
 
@@ -53,10 +56,12 @@ enum class SoundField : std::uint8_t {
     FilterEnabled,
     FilterCutoff,
     EngineType,
+    Model,
     Pitch,
     Morph,
     Timbre,
     Color,
+    Sample,
     DelayTime,
     DelayFeedback,
     DelayMix
@@ -110,6 +115,25 @@ struct TrackAudioSettings {
     AdEnvelopeSettings envelope{};
     TrackFilterSettings filter{};
     TrackSynthSettings synth{};
+};
+
+struct FileEntry {
+    std::string name;
+    std::string path;
+    std::string detail;
+    bool directory = false;
+};
+
+struct FileBrowserState {
+    bool active = false;
+    std::string directory;
+    std::vector<FileEntry> entries;
+    std::size_t cursor = 0;
+};
+
+enum class FileBrowserRequest : std::uint8_t {
+    None,
+    Scan
 };
 
 struct UiState {
@@ -197,6 +221,34 @@ public:
         }
     }
     ProjectRequest takeProjectRequest() noexcept;
+    const FileBrowserState& fileBrowser() const noexcept {
+        return fileBrowser_;
+    }
+    FileBrowserRequest takeFileBrowserRequest() noexcept {
+        const auto request = fileBrowserRequest_;
+        fileBrowserRequest_ = FileBrowserRequest::None;
+        return request;
+    }
+    // App layer fills the list after a Scan request or a directory change.
+    void setFileBrowserEntries(std::string directory,
+                               std::vector<FileEntry> entries) {
+        fileBrowser_.directory = std::move(directory);
+        fileBrowser_.entries = std::move(entries);
+        if (fileBrowser_.entries.empty()) {
+            fileBrowser_.cursor = 0;
+        } else if (fileBrowser_.cursor >= fileBrowser_.entries.size()) {
+            fileBrowser_.cursor = fileBrowser_.entries.size() - 1;
+        }
+    }
+    bool takeChosenSample(std::string& path, std::size_t& track) noexcept {
+        if (chosenSample_.empty()) {
+            return false;
+        }
+        path = chosenSample_;
+        track = chosenTrack_;
+        chosenSample_.clear();
+        return true;
+    }
     // Restores persisted settings at startup; invalid settings are ignored.
     bool setSystemSettings(const platform::SystemSettings& settings) noexcept {
         if (!platform::isValid(settings)) {
@@ -229,12 +281,18 @@ private:
     void requestProjectAction(ProjectRequest request) noexcept;
     void resolveDiscardChoice() noexcept;
     void executePendingProjectRequest() noexcept;
+    void openSampleBrowser() noexcept;
+    void dispatchFileBrowser(Action action) noexcept;
 
     Sequencer& sequencer_;
     audio::AudioParameterQueue* audioParameterQueue_ = nullptr;
     platform::SystemCapabilities capabilities_{};
     platform::SystemSettings systemSettings_{};
     UiState state_{};
+    FileBrowserState fileBrowser_{};
+    FileBrowserRequest fileBrowserRequest_ = FileBrowserRequest::None;
+    std::string chosenSample_;
+    std::size_t chosenTrack_ = 0;
 };
 
 } // namespace pocket::ui

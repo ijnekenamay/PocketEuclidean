@@ -108,6 +108,7 @@ bool SynthVoiceRack::isValid(
            parameters.color >= 0.0F && parameters.color <= 1.0F &&
            std::isfinite(parameters.morph) &&
            parameters.morph >= 0.0F && parameters.morph <= 1.0F &&
+           parameters.model < TrackSynthSettings::ModelCount &&
            std::isfinite(parameters.level) &&
            parameters.level >= 0.0F && parameters.level <= 1.0F;
 }

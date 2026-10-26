@@ -8,7 +8,7 @@ namespace pocket::ui {
 namespace {
 
 constexpr std::size_t EditFieldCount = 6;
-constexpr std::size_t SoundFieldCount = 12;
+constexpr std::size_t SoundFieldCount = 14;
 constexpr std::size_t ModulationFieldCount = 13;
 constexpr std::size_t MixerFieldCount = 6;
 constexpr std::size_t SettingsCategoryCount = 7;
@@ -145,9 +145,7 @@ void UiController::dispatchModal(Action action) {
         }
         return;
     case Modal::FileSelector:
-        if (action == Action::Back) {
-            state_.modal = Modal::ProjectMenu;
-        }
+        dispatchFileBrowser(action);
         return;
     case Modal::ConfirmDiscard:
         if (action == Action::Back) {
@@ -299,8 +297,11 @@ void UiController::dispatchSound(ActionEvent event) {
         break;
     case Action::Confirm:
         if (state_.soundField == SoundField::FilterEnabled ||
-            state_.soundField == SoundField::EngineType) {
+            state_.soundField == SoundField::EngineType ||
+            state_.soundField == SoundField::Model) {
             changeSoundValue(1, false);
+        } else if (state_.soundField == SoundField::Sample) {
+            openSampleBrowser();
         }
         break;
     case Action::Back:
@@ -464,6 +465,27 @@ void UiController::changeSoundValue(int direction, bool fine) {
         }
         return;
     }
+    case SoundField::Model: {
+        auto synth = track.synth;
+        const auto next = wrapIndex(
+            static_cast<int>(synth.model) + direction,
+            static_cast<std::size_t>(TrackSynthSettings::ModelCount));
+        synth.model = static_cast<std::uint8_t>(next);
+        if (!postAudioParameter(audio::AudioParameter::TrackSynthModel,
+                                state_.selectedTrack,
+                                static_cast<float>(next))) {
+            state_.audioParameterRejected = true;
+            return;
+        }
+        if (audioParameterQueue_ != nullptr ||
+            sequencer_.setSynth(state_.selectedTrack, synth)) {
+            state_.modified = true;
+        }
+        return;
+    }
+    case SoundField::Sample:
+        // Confirm opens the WAV browser; Left/Right have no value.
+        return;
     case SoundField::DelayTime: {
         const int step = fine ? 5 : 25;
         const int nextMs = std::clamp(
@@ -1017,6 +1039,9 @@ bool UiController::postAudioParameter(audio::AudioParameter parameter,
     case audio::AudioParameter::TrackSynthEngineType:
         settings.synth.engineType = static_cast<SynthEngineType>(static_cast<int>(value));
         break;
+    case audio::AudioParameter::TrackSynthModel:
+        settings.synth.model = static_cast<std::uint8_t>(value);
+        break;
     case audio::AudioParameter::DelayTimeMs:
     case audio::AudioParameter::DelayFeedback:
     case audio::AudioParameter::DelayMix:
@@ -1029,6 +1054,53 @@ bool UiController::postAudioParameter(audio::AudioParameter parameter,
 void UiController::openProjectMenu() noexcept {
     state_.projectMenuItem = ProjectMenuItem::NewProject;
     state_.modal = Modal::ProjectMenu;
+}
+
+void UiController::openSampleBrowser() noexcept {
+    fileBrowser_.active = true;
+    fileBrowser_.cursor = 0;
+    state_.modal = Modal::FileSelector;
+    fileBrowserRequest_ = FileBrowserRequest::Scan;
+}
+
+void UiController::dispatchFileBrowser(Action action) noexcept {
+    switch (action) {
+    case Action::Back:
+        fileBrowser_.active = false;
+        state_.modal = Modal::None;
+        return;
+    case Action::NavUp:
+    case Action::NavDown: {
+        if (fileBrowser_.entries.empty()) {
+            return;
+        }
+        const int direction = action == Action::NavDown ? 1 : -1;
+        const int last = static_cast<int>(fileBrowser_.entries.size()) - 1;
+        const int next = std::clamp(
+            static_cast<int>(fileBrowser_.cursor) + direction, 0, last);
+        fileBrowser_.cursor = static_cast<std::size_t>(next);
+        return;
+    }
+    case Action::Confirm: {
+        if (fileBrowser_.entries.empty()) {
+            return;
+        }
+        const auto& entry = fileBrowser_.entries[fileBrowser_.cursor];
+        if (entry.directory) {
+            fileBrowser_.directory = entry.path;
+            fileBrowser_.cursor = 0;
+            fileBrowserRequest_ = FileBrowserRequest::Scan;
+        } else {
+            chosenSample_ = entry.path;
+            chosenTrack_ = state_.selectedTrack;
+            fileBrowser_.active = false;
+            state_.modal = Modal::None;
+        }
+        return;
+    }
+    default:
+        return;
+    }
 }
 
 ProjectRequest UiController::takeProjectRequest() noexcept {
