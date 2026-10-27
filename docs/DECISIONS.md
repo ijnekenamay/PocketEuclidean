@@ -82,12 +82,12 @@ soft limiter. Master volume belongs to global system audio preferences, while
 track and master peak meters are runtime-only atomically published values.
 
 `ITransportClock`, `IAudioBackend`, `IInputBackend`, `IMidiBackend`, and
-`ITriggerSink` define replaceable platform boundaries. They are interfaces
-only; there is no MIDI, SDL, or native backend implementation yet.
-`SystemSettings` and `ProjectData` have independent version numbers and data
-models. `SystemCapabilities` can filter settings categories unsupported by the
-current platform. Their serialization and settings migration are not
-implemented.
+`ITriggerSink` define replaceable platform boundaries. SDL2 audio/input and a
+Windows WinMM MIDI input adapter exist behind them; the sequencer itself has no
+OS or MIDI-library dependency. `SystemSettings` (v4) and `ProjectData` (v9)
+have independent version numbers and data models. `SystemCapabilities` can
+filter settings categories unsupported by the current platform. Settings
+serialization and v2/v3 migration are implemented.
 The Project/Storage system-settings category is for global storage preferences
 only; creating, selecting, saving, or loading musical projects remains a
 separate project-management flow.

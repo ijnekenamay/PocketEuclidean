@@ -29,6 +29,9 @@ std::string serializeSettings(const SystemSettings& s) {
         << int(s.audio.masterVolumePercent) << '\n';
     out << "input " << int(s.input.preferGameController) << ' '
         << s.input.repeatDelayMs << ' ' << s.input.repeatIntervalMs << '\n';
+    out << "midi " << int(s.midi.enabled) << ' ' << int(s.midi.inputChannel)
+        << ' ' << int(s.midi.outputChannel) << ' ' << int(s.midi.deviceIndex)
+        << '\n';
     out << "theme " << int(s.display.theme) << '\n';
     return out.str();
 }
@@ -81,6 +84,23 @@ bool parseSettings(const std::string& text, SystemSettings& out,
                                    s.input.repeatIntervalMs) &&
                  (prefer == 0 || prefer == 1);
             s.input.preferGameController = prefer == 1;
+        } else if (key == "midi") {
+            int enabled = 0;
+            int inputChannel = 1;
+            int outputChannel = 1;
+            int deviceIndex = 0;
+            ok = static_cast<bool>(in >> enabled >> inputChannel >>
+                                   outputChannel >> deviceIndex) &&
+                 (enabled == 0 || enabled == 1) && inputChannel >= 1 &&
+                 inputChannel <= 16 && outputChannel >= 1 &&
+                 outputChannel <= 16 && deviceIndex >= 0 &&
+                 deviceIndex <= 15;
+            if (ok) {
+                s.midi.enabled = enabled == 1;
+                s.midi.inputChannel = static_cast<std::uint8_t>(inputChannel);
+                s.midi.outputChannel = static_cast<std::uint8_t>(outputChannel);
+                s.midi.deviceIndex = static_cast<std::uint8_t>(deviceIndex);
+            }
         } else if (key == "theme") {
             int theme = 0;
             ok = static_cast<bool>(in >> theme) && theme >= 0 &&

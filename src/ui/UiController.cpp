@@ -847,6 +847,9 @@ void UiController::dispatchSystem(ActionEvent event) {
                 Sequencer::MinTempoBpm, Sequencer::MaxTempoBpm);
             systemSettings_.clock.initialTempoBpm = nextTempo;
             sequencer_.setTempo(nextTempo);
+        } else if (state_.systemCategory == platform::SettingsCategory::Midi) {
+            // MIDI input is a global system preference, not project data.
+            systemSettings_.midi.enabled = event.action == Action::NavRight;
         } else if (state_.systemCategory ==
                    platform::SettingsCategory::Display) {
             const auto nextTheme =

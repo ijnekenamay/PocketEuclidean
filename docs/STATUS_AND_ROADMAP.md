@@ -66,8 +66,9 @@
 - JitterのRateは16分／8分／4分／2分／全音符のマスターティック境界で確率判断を更新する。イベントマスクは現在の有効パターンから毎ティック構成する。強度は0–100%。Shift範囲は最大8ティック。Mixでは3操作が同じ強度を共有する。カスタムSeedを使える。START/Resetで乱数状態を初期化し、STOP中は状態を進めない。設定変更は次のティックから反映し、すでに配信したイベントは変更しない。
 - 現実装のShiftはマスターティック単位で、サブティックのサンプル位置調整ではない。サブティック移動には音声スケジューラーの先読み境界が必要。
 - SYSTEM設定と ProjectData は別々の型とフォーマットバージョンを持つ。
-- 音声、入力、MIDI、トランスポートの抽象インターフェースを置くが、
-  実際のSDL/OS/MIDIバックエンドは未実装。
+- 音声、入力、MIDI、トランスポートの抽象インターフェースを置く。SDL2
+  音声／入力とWindows WinMM MIDI入力はその背後に実装し、シーケンサーは
+  OS固有APIに依存しない。
 
 ### 例示プリセット（自動ロードはしない）
 
@@ -105,17 +106,17 @@
 - **UI 状態コントローラー:** MAIN / EDIT / SOUND / MIXER / MODULATION / SYSTEM の画面状態、トラック選択、基本的なフィールド編集、楽器選択、音量・リズム値、LFO/Jitter編集、SYSTEMカテゴリ選択、ヘルプ／プロジェクト等のモーダル状態。
 - **MAIN表示モデル／レイアウト／描画コマンド:** `MainScreenSnapshot`が有効パターン等を固定長データで提供し、`layoutMainScreen`が座標化、`buildMainScreenDrawList`が意味付きの固定長・メモリ確保なし描画コマンドを生成する。`TickResult`にティック時点の各トラックのステップ番号を追加し、容量32のSPSCキューで音声側からUIへ発音イベントを渡す。`AudioCallbackProcessor`から発音イベントをキューへ発行し、UI側の8×32固定長`StepLightBank`が絶対音声フレームから照明エンベロープを評価する。未来のイベントは時刻まで保留し、寿命を過ぎたイベントは破棄する。lock-free要件を満たさないターゲットではオーディオ開始を拒否する必要がある。SDL実描画と発音照明の画面反映は未実装。
 - **UI発音照明エンベロープ:** SDL2に依存しない`StepLightEnvelope`が単調時刻から照度を評価し、固定長`StepLightBank`が音声フレーム時刻付きイベントから8×32ステップの状態を更新する。Attack 18ms / Hold 25ms / Decay 170ms、再トリガー時は現在照度から滑らかに再上昇する。SDL描画、実オーディオコールバックとの接続、実機での視認性調整は未実装。
-- **テーマ配色:** `ThemePalette`が背景／主文字／抑制色／アクセントの意味色とQuiet Dark・Warm Paper・High Contrastに加え、Neon RGB・Outrun・Amber CRT・Phosphor・VGA DOSの計8プリセットを提供。レトロコンピュータ系は暗い背景と高彩度のRGB蛍光色（シアン／マゼンタ／アンバー／グリーン／VGAイエロー）で構成し、同じ4ロールのまま全画面を一括で切り替える。SYSTEM > Displayで左右キーからグローバルテーマを変更でき、プロジェクトのdirty stateとは独立する。SystemSettings設定モデルと操作は実装済み。設定永続化とSDL描画への適用は未実装。
+- **テーマ配色:** `ThemePalette`が背景／主文字／抑制色／アクセントの意味色とQuiet Dark・Warm Paper・High Contrastに加え、Neon RGB・Outrun・Amber CRT・Phosphor・VGA DOSの計8プリセットを提供。レトロコンピュータ系は暗い背景と高彩度のRGB蛍光色（シアン／マゼンタ／アンバー／グリーン／VGAイエロー）で構成し、同じ4ロールのまま全画面を一括で切り替える。SYSTEM > Displayで左右キーからグローバルテーマを変更でき、プロジェクトのdirty stateとは独立する。SystemSettings設定モデル、永続化、SDL描画への適用は実装済み。
 - **LFO変調エンジン:** トラックあたり最大4スロットを持つデータモデル、初期UIは1基を編集。6波形、FREE/SYNCレート、1基あたり単一出力先、複数寄与の合算、基準値と有効値の分離、整数量子化・範囲制限。長さ変調でトラック位相のみ正規化する。
 - **Jitterイベント処理:** 各トラック独立のInsert/Drop/Shift/Mix、強度・同期間隔・符号付きシフト範囲・任意Seed。固定サイズの非破壊イベントマスクを生成し、Euclideanパターンは保持する。MODULATION画面で主要設定を編集できる。
-- **MIDI-ready境界とデータモデル:** トランスポートクロック、音声・入力・MIDI・トリガーのインターフェース。SystemSettingsとProjectDataは独立したバージョン番号を持ち、SystemCapabilitiesによる設定カテゴリの機種別可用性判定を備える。
+- **MIDI境界とデータモデル:** トランスポートクロック、音声・入力・MIDI・トリガーのインターフェース。SystemSettingsとProjectDataは独立したバージョン番号を持ち、SystemCapabilitiesによる設定カテゴリの機種別可用性判定を備える。Windows向けにWinMM入力バックエンド、24 PPQNクロック追従、Start/Stop/Continue、SYSTEM MIDIトグルを実装済み。
 - **プロジェクト操作:** UIからの保存・読み込み・新規・上書き確認要求をSDLアプリが受け取り、`ProjectStore`がv9形式でシリアライズ／復元する。v6–v8は読み込み時に移行する。トラック別サンプルパスは百分率エンコードして保存し、復元時は相対／絶対パスを解決する。
 - **自動テストのソース:** シーケンサーの境界条件、分布、位相、ティックスケジュール、LFO、Jitterの決定性／動作モード、および入力・UI状態遷移のテストコード。
 - **ビルド設定のひな型:** CMake のコア・ライブラリーとテストターゲット、Linux ARM hard-float と AArch64 用のクロスコンパイル設定例。
 
 ### 未実装
 
-- **デスクトップ音声接続（Phase 4 開始）:** `src/app/SdlAudioBackend.h`が`IAudioBackend`をSDL2 audio（float32 stereo、周波数／バッファー変更許可）で実装し、SDLバッファーを4096フレーム以下の連続チャンクへ分割して`blockStartFrame`を単調に渡す。`src/app/DesktopAudioEngine.h`が`AudioCallbackProcessor`・`SamplerVoicePool`・`Mixer`・`SamplerMixerRenderer`・パラメーターSPSCキュー・`StepLightBank`を配線する。WAVローダー統合までの暫定として、トラック別の内蔵合成音（キック／ノイズ系／音程付きサイン）を使用する。再生は音声クロック駆動で、UIは`framesRendered`を基準に`StepLightBank`の発音照明を描画する（`--play`起動で確認）。SDL2音声が使えない場合は従来の125ms wall-clockティックによる視覚のみのフォールバックへ戻る。**Sequencer handoff:** UIとaudioはそれぞれ別の`Sequencer`を持つ。UI側の編集は`SequencerSync`が差分を検出し、容量256のSPSC lock-freeキュー（`src/audio/SequencerCommandQueue.h`）経由で、`AudioCallbackProcessor`がブロック先頭で音声側の`Sequencer`へ適用する（デバイスロック不使用。キュー満杯時は未送信分を次回syncで再送）。UI側`Sequencer`の再生位置は進まず、発音照明はイベントキュー由来。テスト追加済み（差分送信・満杯後の収束）。**PortMaster向け整備（未実機検証）:** `--fullscreen`（ネイティブ解像度・カーソル非表示）、`--rate`／`--buffer`（実機で音声設定を調整）、アクセラレーター付きレンダラーが使えない場合のソフトウェア描画フォールバック、Select+Start同時押しでの終了、`./samples`の自動読み込みを追加。CMakeに`PORTMASTER_BUILD`（Release、テスト無効、SDL2必須、libstdc++静的リンク、出力名`pocketeuclidean.<arch>`）を追加。`packaging/portmaster/pocketeuclidean/`にport.json、gameinfo.xml、README.md、起動スクリプト`Pocket Euclidean.sh`（公式ガイドの構成、gptokeybなし）、screenshot.png（PCの640×480描画。実機の画面ではない）、licenses／samplesのひな型を用意。640×480の描画は目視確認済み。AArch64クロスビルド、実機での起動／入力／音声／終了、ライセンスファイル同梱は未実施。 **R36S実機での起動（ユーザー報告）:** 修正版パッケージがR36Sで正常に動作したとの報告を受けた（確認項目の詳細・音声／入力の個別確認結果は未記録）。Brick Proは未確認。 **設定の永続化:** `src/platform/SettingsStore.{h,cpp}`が`settings.cfg`（`PocketEuclideanSettings`ヘッダー、version 3）へテンポ初期値・音声（レート／バッファー／マスター音量）・入力・テーマを保存／復元する（厳格パース、temp+rename、不正ファイルは無視して既定値）。`--data`ディレクトリ（PortMasterでは`$GAMEDIR/conf/`）に置かれ、起動時に読み込み、マスター音量は音声開始後にキューへ反映、設定が変化したら即保存する。往復・拒否のテスト追加、Windowsでテーマ（HIGH CONTRAST）とマスター40%の復元を目視確認。R36Sでの書き込みは未確認。 **AArch64クロスビルド（コンパイル確認済み・実行未確認）:** `scripts/build-portmaster-aarch64.sh`がzig 0.14.1（`aarch64-linux-gnu.2.28`）でSDL2（リンク用に2.32.10をソースからビルド）とアプリを`PORTMASTER_BUILD=ON`でビルドし、`pocketeuclidean.aarch64`（ELF 64-bit ARM aarch64、strip済み約760KB、動的依存は`libSDL2-2.0.so.0`・libc・libm・libpthread・libdlのみ、要求glibcは2.17まで、libc++は静的）と、スクリプト実行権付きの`pocketeuclidean.zip`（約300KB）を生成する。警告なし。WSL Ubuntuで確認。**R36S実機での初回起動失敗と修正:** 初版は`symbol lookup error: undefined symbol: __aarch64_ldadd8_relax`で起動しなかった。原因は、リンク用にビルドしたlibSDL2がzigのcompiler-rt（`__aarch64_*`、`__divti3`）をweak exportしており、zigがアプリ側へcompiler-rtを埋め込まずそのSDL側の記号へ動的束縛したこと（実機のlibSDL2にはこれらが無い）。リンク用SDL2をバージョンスクリプトで`SDL_*`のみexportするよう変更し、アプリ側にcompiler-rtが埋め込まれるようにした。ビルドスクリプトは`nm -D`で`__aarch64_*`の動的未解決記号が残っていれば失敗する。修正版のR36S実機での起動は未確認（ホストにaarch64のローダー／ランタイムが無く、ビルド環境では実行できない）。ライセンスファイルは未同梱（プロジェクト自体のライセンスが未決定）。**MIXERデスクトップ表示:** 全8トラックの音量／Pan／Muteとピークメーター、マスター行、選択中の編集項目を表示（メーターは`Mixer`の`PeakMeters`をUIスレッドで読み、即時アタック・約0.3秒リリースで平滑化。`--play --screen 3`で目視確認、1024×768）。**コールバック負荷計測:** `SdlAudioBackend`がチャンクごとの処理時間をバッファー時間比で記録し、終了時に平均／p99／最大／期限超過数をstderrへ出す。Windows開発機のSDL2（48kHz/480フレーム、`--play`、8トラック、60秒）で 5939チャンク、平均4.4%、p99 12%以下、最大20.8%、期限超過0（ビルド種別は既定のまま、Brick Pro実機の値ではない）。聴感・長時間の安定性は未確認。`--samples <dir>`でWAVをトラック1〜8へ読み込める（起動時のみ）。 **プロジェクト保存／読み込み:** `src/project/ProjectStore.{h,cpp}`がテキスト形式（`PocketEuclideanProject`ヘッダー、version 6）でテンポ・全8トラックのリズム／LFO×4／Jitter／Mute／音量／Pan／エンベロープ／フィルターを保存・復元する。パーサーは厳格（不明キー・範囲外の値・版違いは拒否し出力を変更しない）、保存は`.tmp`へ書いてからリネーム、読み込みは作業用Sequencerで検証してから適用する。アプリは`--data <dir>`（既定`./conf`、PortMaster起動スクリプトは`$GAMEDIR/conf/`を指定）の`project.pec`の1スロットを扱い、Project menuのNEW／LOAD／SAVE／SAVE ASと破棄確認に接続（ファイル選択UIは未実装のためLOAD／SAVE ASも同スロット）、起動時に存在すれば自動読み込みし、画面下部に結果（SAVED／LOADED等）を3秒表示する。往復・拒否・上書きのテスト追加済み、`--data`の読み込みと表示（77 BPM、T1=9ステップ）を目視確認。エフェクト設定はSequencer外のため値は保存されるが未接続。システム設定（テーマ・音声など）の永続化、ファイル選択UI、実機での保存先書き込みは未実施。 `pocket_euclidean_app`ターゲットを追加し、SDL2が検出された場合はウィンドウ作成・レンダラー・キーボード／GameController入力の論理アクション変換・6画面の基本描画を行う最小シェルを実装した。SDL2未検出時はheadlessフォールバックで起動し、明示メッセージを表示する。GameController未対応デバイス向けのSDL Joystick fallback（汎用ボタン0-9／ハット）、トリガー軸→L2/R2、抜き差し対応、未認識コントローラーのGUID診断ログ（stderr）を追加。テキスト描画（内蔵5x7ビットマップフォント、`src/app/BitmapFont.h`）を追加し、Mainのテンポ／再生状態／トラックラベル、EDIT／SOUND／MIXER／SYSTEMの項目名と値、MODULATIONの項目名と選択トラックのLFO1／Jitter現在値（`--screen 4`で目視確認、値の編集操作の実機確認は未実施）、Help／Project／破棄確認モーダルを描画する。Mainのデスクトップ描画に加え、`--capture`による1フレーム出力で6画面・Helpモーダル・480×320を目視確認済み（1024×768で項目名／値／選択下線が読める。画面内の文字サイズは統一）。ProjectMenu／破棄確認モーダル・1920×1080・実入力は目視未確認。実音声デバイス初期化は下記「デスクトップ音声接続」を参照。1024×768以外の可読性評価は未実施。
+- **デスクトップ音声接続（Phase 4 開始）:** `src/app/SdlAudioBackend.h`が`IAudioBackend`をSDL2 audio（float32 stereo、周波数／バッファー変更許可）で実装し、SDLバッファーを4096フレーム以下の連続チャンクへ分割して`blockStartFrame`を単調に渡す。`src/app/DesktopAudioEngine.h`が`AudioCallbackProcessor`・`SamplerVoicePool`・`Mixer`・`SamplerMixerRenderer`・パラメーターSPSCキュー・`StepLightBank`を配線する。WAVローダー統合までの暫定として、トラック別の内蔵合成音（キック／ノイズ系／音程付きサイン）を使用する。再生は音声クロック駆動で、UIは`framesRendered`を基準に`StepLightBank`の発音照明を描画する（`--play`起動で確認）。SDL2音声が使えない場合は従来の125ms wall-clockティックによる視覚のみのフォールバックへ戻る。**Sequencer handoff:** UIとaudioはそれぞれ別の`Sequencer`を持つ。UI側の編集は`SequencerSync`が差分を検出し、容量256のSPSC lock-freeキュー（`src/audio/SequencerCommandQueue.h`）経由で、`AudioCallbackProcessor`がブロック先頭で音声側の`Sequencer`へ適用する（デバイスロック不使用。キュー満杯時は未送信分を次回syncで再送）。UI側`Sequencer`の再生位置は進まず、発音照明はイベントキュー由来。テスト追加済み（差分送信・満杯後の収束）。**PortMaster向け整備（未実機検証）:** `--fullscreen`（ネイティブ解像度・カーソル非表示）、`--rate`／`--buffer`（実機で音声設定を調整）、アクセラレーター付きレンダラーが使えない場合のソフトウェア描画フォールバック、Select+Start同時押しでの終了、`./samples`の自動読み込みを追加。CMakeに`PORTMASTER_BUILD`（Release、テスト無効、SDL2必須、libstdc++静的リンク、出力名`pocketeuclidean.<arch>`）を追加。`packaging/portmaster/pocketeuclidean/`にport.json、gameinfo.xml、README.md、起動スクリプト`Pocket Euclidean.sh`（公式ガイドの構成、gptokeybなし）、screenshot.png（PCの640×480描画。実機の画面ではない）、licenses／samplesのひな型を用意。640×480の描画は目視確認済み。AArch64クロスビルド、実機での起動／入力／音声／終了、ライセンスファイル同梱は未実施。 **R36S実機での起動（ユーザー報告）:** 修正版パッケージがR36Sで正常に動作したとの報告を受けた（確認項目の詳細・音声／入力の個別確認結果は未記録）。Brick Proは未確認。 **設定の永続化:** `src/platform/SettingsStore.{h,cpp}`が`settings.cfg`（`PocketEuclideanSettings`ヘッダー、version 4）へテンポ初期値・音声（レート／バッファー／マスター音量）・入力・MIDI（有効／入出力チャンネル／デバイス）・テーマを保存／復元する（厳格パース、temp+rename、不正ファイルは無視して既定値）。`--data`ディレクトリ（PortMasterでは`$GAMEDIR/conf/`）に置かれ、起動時に読み込み、マスター音量は音声開始後にキューへ反映、設定が変化したら即保存する。往復・拒否のテスト追加、Windowsでテーマ（HIGH CONTRAST）とマスター40%の復元を目視確認。R36Sでの書き込みは未確認。 **AArch64クロスビルド（コンパイル確認済み・実行未確認）:** `scripts/build-portmaster-aarch64.sh`がzig 0.14.1（`aarch64-linux-gnu.2.28`）でSDL2（リンク用に2.32.10をソースからビルド）とアプリを`PORTMASTER_BUILD=ON`でビルドし、`pocketeuclidean.aarch64`（ELF 64-bit ARM aarch64、strip済み約760KB、動的依存は`libSDL2-2.0.so.0`・libc・libm・libpthread・libdlのみ、要求glibcは2.17まで、libc++は静的）と、スクリプト実行権付きの`pocketeuclidean.zip`（約300KB）を生成する。警告なし。WSL Ubuntuで確認。**R36S実機での初回起動失敗と修正:** 初版は`symbol lookup error: undefined symbol: __aarch64_ldadd8_relax`で起動しなかった。原因は、リンク用にビルドしたlibSDL2がzigのcompiler-rt（`__aarch64_*`、`__divti3`）をweak exportしており、zigがアプリ側へcompiler-rtを埋め込まずそのSDL側の記号へ動的束縛したこと（実機のlibSDL2にはこれらが無い）。リンク用SDL2をバージョンスクリプトで`SDL_*`のみexportするよう変更し、アプリ側にcompiler-rtが埋め込まれるようにした。ビルドスクリプトは`nm -D`で`__aarch64_*`の動的未解決記号が残っていれば失敗する。修正版のR36S実機での起動は未確認（ホストにaarch64のローダー／ランタイムが無く、ビルド環境では実行できない）。ライセンスファイルは未同梱（プロジェクト自体のライセンスが未決定）。**MIXERデスクトップ表示:** 全8トラックの音量／Pan／Muteとピークメーター、マスター行、選択中の編集項目を表示（メーターは`Mixer`の`PeakMeters`をUIスレッドで読み、即時アタック・約0.3秒リリースで平滑化。`--play --screen 3`で目視確認、1024×768）。**コールバック負荷計測:** `SdlAudioBackend`がチャンクごとの処理時間をバッファー時間比で記録し、終了時に平均／p99／最大／期限超過数をstderrへ出す。Windows開発機のSDL2（48kHz/480フレーム、`--play`、8トラック、60秒）で 5939チャンク、平均4.4%、p99 12%以下、最大20.8%、期限超過0（ビルド種別は既定のまま、Brick Pro実機の値ではない）。聴感・長時間の安定性は未確認。`--samples <dir>`でWAVをトラック1〜8へ読み込める（起動時のみ）。 **プロジェクト保存／読み込み:** `src/project/ProjectStore.{h,cpp}`がテキスト形式（`PocketEuclideanProject`ヘッダー、version 6）でテンポ・全8トラックのリズム／LFO×4／Jitter／Mute／音量／Pan／エンベロープ／フィルターを保存・復元する。パーサーは厳格（不明キー・範囲外の値・版違いは拒否し出力を変更しない）、保存は`.tmp`へ書いてからリネーム、読み込みは作業用Sequencerで検証してから適用する。アプリは`--data <dir>`（既定`./conf`、PortMaster起動スクリプトは`$GAMEDIR/conf/`を指定）の`project.pec`の1スロットを扱い、Project menuのNEW／LOAD／SAVE／SAVE ASと破棄確認に接続（ファイル選択UIは未実装のためLOAD／SAVE ASも同スロット）、起動時に存在すれば自動読み込みし、画面下部に結果（SAVED／LOADED等）を3秒表示する。往復・拒否・上書きのテスト追加済み、`--data`の読み込みと表示（77 BPM、T1=9ステップ）を目視確認。エフェクト設定はSequencer外のため値は保存されるが未接続。システム設定（テーマ・音声など）の永続化、ファイル選択UI、実機での保存先書き込みは未実施。 `pocket_euclidean_app`ターゲットを追加し、SDL2が検出された場合はウィンドウ作成・レンダラー・キーボード／GameController入力の論理アクション変換・6画面の基本描画を行う最小シェルを実装した。SDL2未検出時はheadlessフォールバックで起動し、明示メッセージを表示する。GameController未対応デバイス向けのSDL Joystick fallback（汎用ボタン0-9／ハット）、トリガー軸→L2/R2、抜き差し対応、未認識コントローラーのGUID診断ログ（stderr）を追加。テキスト描画（内蔵5x7ビットマップフォント、`src/app/BitmapFont.h`）を追加し、Mainのテンポ／再生状態／トラックラベル、EDIT／SOUND／MIXER／SYSTEMの項目名と値、MODULATIONの項目名と選択トラックのLFO1／Jitter現在値（`--screen 4`で目視確認、値の編集操作の実機確認は未実施）、Help／Project／破棄確認モーダルを描画する。Mainのデスクトップ描画に加え、`--capture`による1フレーム出力で6画面・Helpモーダル・480×320を目視確認済み（1024×768で項目名／値／選択下線が読める。画面内の文字サイズは統一）。ProjectMenu／破棄確認モーダル・1920×1080・実入力は目視未確認。実音声デバイス初期化は下記「デスクトップ音声接続」を参照。1024×768以外の可読性評価は未実施。
 - **実 UI（1024×768基準・Super Flat 6画面描画）:** [UI_DESIGN_POLICY.md](UI_DESIGN_POLICY.md) に準拠する6画面のフラットバー描画を `src/app/main.cpp` に実装済み。MAINの選択トラック強調マーカー・ヘッダー状態表示・発音照明、EDITの上部ライブEuclideanパターンプレビュー＋フラットバー（ELENG/EFILL/EOFFS/VOLUME等）、SOUND・MODULATION・SYSTEMの単極／双極（Pan・Depth中央基準）／離散トグルのフラットバー、MIXERの音量・Bipolar Pan・ピークメーターを描画する。また音声再生中のUI shadow（`effectiveTrackState`）の画面・プロジェクト保存反映およびMAIN／SYSTEM > CLOCKでのBPM操作を統合済み。Brick Pro実機での目視・フレーム時間測定は未実施。
 - **MAIN画面のSDL描画:** 表示モデル・テーマ連動レイアウト・固定長描画コマンドはあるが、1024×768上の文字・背景・行・ステップバーの実描画は未実装。
 - **描画側イベント連携:** `AudioCallbackProcessor`から音声フレーム時刻付きイベントを有界SPSCキューへ発行し、ステップごとの照明状態へ渡す基盤を実装済み。実SDL音声デバイスへの接続、描画反映、実機での表示確認は未実装。
@@ -124,9 +125,9 @@
 - **楽器:** WAVファイルの読み込み・トラック別選択・再生中の差し替え・プロジェクト参照保存は実装済み。残るのは、軽量VA／Plaitsの実機計測・改善、Braids／Plaits候補の比較、より高度なフィルター／callback-safeな設定更新である。
 - **エフェクト:** ディレイ、フィルター、エフェクトルーティング。
 - **プロジェクト管理:** バージョン付きシリアライズ、`conf/project.pec`への保存・読み込み、v6–v8移行、上書き確認、未保存変更時の Save/Discard/Cancel、サンプルパスの保存・復元は実装済み。残るのは、Save Asの保存先選択UI、OS標準ファイルダイアログ、サンプル欠落時のユーザー向け復旧導線である。
-- **SYSTEM設定永続化:** 設定モデル（テーマIDを含む）、Displayテーマ切り替え、カテゴリ可用性判定、能力に応じたカテゴリ移動はあるが、設定の保存・読み込み・移行、実機能力の検出は未実装。テーマ設定追加に伴いSystemSettings形式はv3。将来v2以前から読み込む際の移行処理は未実装。
+- **SYSTEM設定永続化:** 設定モデル（テーマID・MIDI設定を含む）、Displayテーマ切り替え、カテゴリ可用性判定、能力に応じたカテゴリ移動、`settings.cfg`への保存・読み込み・v2/v3からの移行は実装済み。SystemSettings形式はv4。残るのは、実機での書き込み先確認とMIDIポートのホットプラグ検出である。
 - **ミキサー実音声統合:** Mixer DSP、atomic meter、sampler rendererのcallback接続は実装済み。実SDLデバイスとUI描画は未実装。
-- **MIDI:** OS/MIDIライブラリー非依存のポートだけを定義。MIDI Clock In/Out、Start/Stop/Continue、Note Out、CC mapping、MIDI Learn、チャンネル／ポート選択は未実装。
+- **MIDI:** OS/MIDIライブラリー非依存の`IMidiBackend`境界、WinMM入力アダプター、24 PPQNクロック追従（40–240 BPM）、Start/Stop/Continue、SYSTEM MIDIトグル、`--midi-list`／`--midi-device`を実装済み。Linux/PortMasterはnull backendでMIDIカテゴリを隠す。未実装はClock Out、Note Out/In、CC mapping、MIDI Learn、複数ポート同時利用、ホットプラグ、実機でのクロック追従精度確認である。
 - **実機固有の入力・保存・配布:** Brick Pro/NextUIを含む各機種のボタンプロファイル、書き込み先、PortMaster起動スクリプト、同梱ランタイム、メタデータ／スクリーンショット／ライセンスを含むパッケージ。
 - **非 Linux 対応:** Windows/macOS ネイティブビルドの実証、および非 Linux ハンドヘルドへの移植。
 
@@ -231,11 +232,14 @@
 
 ### Phase 8 — MIDI クロックとトランスポート同期
 
-- MIDI backend adapterを追加し、Clock In/OutとStart/Stop/Continueを実装。
-- 外部クロック接続／切断、マスター優先順位、位相の扱いを定義する。
-- MIDI未接続時にもstandalone grooveboxとしての動作を維持する。
+- [x] MIDI backend adapterを追加し、Clock InとStart/Stop/Continueを実装。
+  WindowsはWinMM、Linux/PortMasterはnull backend。Clock Outは未実装。
+- [ ] 外部クロック接続／切断、マスター優先順位、位相の扱いを定義する。
+  現状はMIDI入力ONで外部クロックを優先し、OFFで内部クロックへ戻る。
+- [x] MIDI未接続時にもstandalone grooveboxとしての動作を維持する。
 
 **完了条件:** MIDI clock / transportを差し替え可能なbackend経由で利用できる。
+Clock In／transportは満たす。Clock Outと複数ポート運用は未完了。
 
 ### Phase 9 — MIDI ノート、CC、Learn
 
@@ -280,7 +284,7 @@
 8. 実機のボタン名・SDL マッピング、オーディオのサンプルレート／バッファー値。
 9. Jitter MixでInsert / Drop / Shift個別強度を将来の版でどう露出するか。
 10. サブティックShiftを行う場合の音声イベント先読み幅と遅延。
-11. MIDI Clock In/Out併用時の優先クロック、Start/Stop/Continue位相、および機器選択方法。
+11. MIDI Clock Out併用時の優先クロックと位相、複数入力ポートの選択、ホットプラグ時の再同期。
 12. PortMasterガイドの更新を反映した最終パッケージ metadata、機種別起動制約、ライセンスとランタイム依存。
 
 ## 7. 参照ドキュメント
@@ -289,5 +293,6 @@
 - [UI_CONTROLS.md](UI_CONTROLS.md) — 論理アクション、キーボード／コントローラー割り当て、手動確認項目。
 - [UI_DESIGN_POLICY.md](UI_DESIGN_POLICY.md) — 6画面のスーパーフラットな視覚言語、リズム表示、照明アニメーション、描画性能、デザイン受け入れ基準。
 - [PLATFORMS.md](PLATFORMS.md) — デスクトップと Linux ARM 系のビルド方針・クロスビルド例。
+- [MIDI.md](MIDI.md) — MIDI Clock In／トランスポートの構成、設定、制限。
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 音楽状態、UI、システム設定、変調、プラットフォーム／MIDI境界と未実装のスレッド安全要件。
 - [../README.md](../README.md) — 現状の概要と簡易ビルド案内。

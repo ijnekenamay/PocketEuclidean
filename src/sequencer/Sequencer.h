@@ -101,8 +101,19 @@ public:
 
     void start() noexcept override;
     void stop() noexcept override;
+    // Restarts from the beginning even if already playing (MIDI Start).
+    void restart() noexcept;
+    // Continues from the current position without resetting (MIDI Continue).
+    void resume() noexcept;
     void reset() noexcept;
     bool isPlaying() const noexcept override { return playing_; }
+    // Monotonic transport revision. The audio hand-off compares it so a
+    // Start/Continue/Stop is never lost when the play bool returns to its
+    // previous value between frames.
+    std::uint32_t transportRevision() const noexcept {
+        return transportRevision_;
+    }
+    bool lastStartWasResume() const noexcept { return lastStartWasResume_; }
     std::uint64_t masterTickPosition() const noexcept override {
         return masterTickPosition_;
     }
@@ -174,6 +185,8 @@ private:
     double secondsUntilNextTick_ = 0.0;
     std::uint64_t masterTickPosition_ = 0;
     bool playing_ = false;
+    std::uint32_t transportRevision_ = 0;
+    bool lastStartWasResume_ = false;
     ModulationEngine modulation_{};
     JitterEngine jitter_{};
 };

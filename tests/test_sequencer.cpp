@@ -11,6 +11,7 @@
 #include "audio/SelectableSynthVoice.h"
 #include "audio/WavDecoder.h"
 #include "sequencer/Modulation.h"
+#include "sequencer/MidiClock.h"
 #include "sequencer/Sequencer.h"
 #include "platform/SystemSettings.h"
 #include "platform/BackendInterfaces.h"
@@ -2112,6 +2113,112 @@ void testProjectStoreRoundTrip() {
     std::filesystem::remove_all(std::filesystem::path(path).parent_path(), ec);
 }
 
+void testMidiClockAndTransport() {
+    using namespace pocket;
+    using MidiType = platform::MidiEvent::Type;
+
+    platform::MidiEvent event;
+    MidiClockFollower clock;
+    expect(clock.tempoBpm() == 120.0 && !clock.running() &&
+               !clock.clockSeen(),
+           "MIDI clock follower starts stopped at the default tempo");
+
+    event.type = MidiType::Start;
+    clock.process(event);
+    expect(clock.takeStart() && clock.running() &&
+               !clock.takeStop() && !clock.takeResume(),
+           "MIDI Start requests transport start");
+
+    // 120 BPM = 24 clocks per 500 ms = 20.833 ms per clock.
+    std::uint64_t timestamp = 1000;
+    for (int pulse = 0; pulse < 30; ++pulse) {
+        timestamp += 20833;
+        event.type = MidiType::Clock;
+        event.timestampMicros = timestamp;
+        clock.process(event);
+    }
+    expect(clock.clockSeen() &&
+               std::abs(clock.tempoBpm() - 120.0) < 1.0,
+           "MIDI clock estimates 120 BPM from 24 PPQN");
+    expect(clock.takeTempoChanged(), "tempo update is latched for the caller");
+
+    for (int pulse = 0; pulse < 30; ++pulse) {
+        timestamp += 20000;
+        event.timestampMicros = timestamp;
+        clock.process(event);
+    }
+    expect(std::abs(clock.tempoBpm() - 125.0) < 1.0,
+           "MIDI clock follows a tempo change");
+
+    event.type = MidiType::Stop;
+    clock.process(event);
+    expect(clock.takeStop() && !clock.running(),
+           "MIDI Stop requests transport stop");
+
+    event.type = MidiType::Continue;
+    clock.process(event);
+    expect(clock.takeResume() && clock.running(),
+           "MIDI Continue requests transport resume");
+
+    const auto stableTempo = clock.tempoBpm();
+    timestamp += 500000;
+    event.type = MidiType::Clock;
+    event.timestampMicros = timestamp;
+    clock.process(event);
+    expect(clock.tempoIntervalCount() == 0 &&
+               clock.tempoBpm() == stableTempo,
+           "long clock gaps reset the tempo window instead of bending it");
+
+    event.type = MidiType::Start;
+    clock.process(event);
+    event.type = MidiType::Stop;
+    clock.process(event);
+    expect(clock.takeStop() && !clock.takeStart(),
+           "only the latest transport message stays pending");
+
+    Sequencer sequencer;
+    sequencer.start();
+    (void)sequencer.tick();
+    const auto tickBeforeStop = sequencer.masterTickPosition();
+    sequencer.stop();
+    sequencer.resume();
+    expect(sequencer.isPlaying() &&
+               sequencer.masterTickPosition() == tickBeforeStop,
+           "MIDI Continue resumes without resetting the tick position");
+    sequencer.restart();
+    expect(sequencer.isPlaying() && sequencer.masterTickPosition() == 0,
+           "MIDI Start restarts from the first tick");
+
+    Sequencer uiSide;
+    Sequencer audioSide;
+    audio::SequencerCommandQueue queue;
+    audio::SequencerSync sync(queue, uiSide);
+    uiSide.start();
+    sync.sync(uiSide);
+    audio::SequencerCommand command;
+    expect(queue.pop(command) &&
+               command.type == audio::SequencerCommandType::Start,
+           "transport sync sends Start");
+    audio::applySequencerCommand(audioSide, command);
+    (void)audioSide.tick();
+    const auto audioTickBeforeStop = audioSide.masterTickPosition();
+    uiSide.stop();
+    sync.sync(uiSide);
+    expect(queue.pop(command) &&
+               command.type == audio::SequencerCommandType::Stop,
+           "transport sync sends Stop");
+    audio::applySequencerCommand(audioSide, command);
+    uiSide.resume();
+    sync.sync(uiSide);
+    expect(queue.pop(command) &&
+               command.type == audio::SequencerCommandType::Continue,
+           "transport sync sends Continue after a resume");
+    audio::applySequencerCommand(audioSide, command);
+    expect(audioSide.isPlaying() &&
+               audioSide.masterTickPosition() == audioTickBeforeStop,
+           "audio-side Continue preserves the transport position");
+}
+
 void testSettingsStore() {
     using namespace pocket;
     platform::SystemSettings settings;
@@ -2120,13 +2227,20 @@ void testSettingsStore() {
     settings.audio.masterVolumePercent = 65;
     settings.display.theme = platform::ThemeId::VgaDos;
     settings.input.repeatDelayMs = 400;
+    settings.midi.enabled = true;
+    settings.midi.inputChannel = 3;
+    settings.midi.outputChannel = 5;
+    settings.midi.deviceIndex = 2;
     const auto text = platform::serializeSettings(settings);
     platform::SystemSettings parsed;
     std::string error;
     expect(platform::parseSettings(text, parsed, &error), "settings parse: " + error);
     expect(platform::serializeSettings(parsed) == text, "settings round-trip");
     expect(parsed.audio.masterVolumePercent == 65 &&
-               parsed.display.theme == platform::ThemeId::VgaDos,
+               parsed.display.theme == platform::ThemeId::VgaDos &&
+               parsed.midi.enabled && parsed.midi.inputChannel == 3 &&
+               parsed.midi.outputChannel == 5 &&
+               parsed.midi.deviceIndex == 2,
            "settings values restored");
 
     platform::SystemSettings untouched;
@@ -2220,10 +2334,26 @@ void testSettingsStoreMigration() {
     expect(s.audio.masterVolumePercent == 80, "v2 master volume preserved");
     expect(s.input.preferGameController, "v2 input prefer preserved");
     expect(s.display.theme == pocket::platform::ThemeId::QuietDark, "v2 defaults theme to QuietDark");
+    expect(!s.midi.enabled && s.midi.inputChannel == 1 &&
+               s.midi.outputChannel == 1 && s.midi.deviceIndex == 0,
+           "v2 defaults MIDI to disabled on channel 1");
 
     pocket::platform::SystemSettings bad;
     expect(!pocket::platform::parseSettings("PocketEuclideanSettings\nversion 0\n", bad), "reject version 0");
-    expect(!pocket::platform::parseSettings("PocketEuclideanSettings\nversion 4\n", bad), "reject future version 4");
+    expect(!pocket::platform::parseSettings("PocketEuclideanSettings\nversion 5\n", bad), "reject future version 5");
+
+    const std::string v3Text =
+        "PocketEuclideanSettings\n"
+        "version 3\n"
+        "tempo 120\n"
+        "audio 48000 256 100\n"
+        "input 1 350 120\n"
+        "theme 3\n";
+    expect(pocket::platform::parseSettings(v3Text, s, &err),
+           "parse v3 settings without MIDI: " + err);
+    expect(!s.midi.enabled && s.midi.deviceIndex == 0 &&
+               s.display.theme == pocket::platform::ThemeId::NeonRgb,
+           "v3 settings migrate with MIDI disabled");
 }
 
 void testDelayEffect() {
@@ -2340,6 +2470,7 @@ int main() {
     testWavDecoder();
     testSampleCache();
     testVersionedSettingsAndProjectSeparation();
+    testMidiClockAndTransport();
     testLiveChangesMuteAndTempo();
     testSampleTimeScheduling();
     testAudioCallbackProcessor();

@@ -4,7 +4,7 @@
 
 namespace pocket::platform {
 
-constexpr std::uint32_t SystemSettingsFormatVersion = 3;
+constexpr std::uint32_t SystemSettingsFormatVersion = 4;
 
 enum class SettingsCategory : std::uint8_t {
     ClockAndTransport,
@@ -47,6 +47,7 @@ struct MidiSettings {
     bool enabled = false;
     std::uint8_t inputChannel = 1;
     std::uint8_t outputChannel = 1;
+    std::uint8_t deviceIndex = 0;
 };
 
 struct AudioSettings {

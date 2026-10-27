@@ -22,6 +22,10 @@ struct MidiEvent {
     std::uint8_t channel = 1;
     std::uint8_t data1 = 0;
     std::uint8_t data2 = 0;
+    // Monotonic receive timestamp in microseconds, stamped by the backend.
+    // 0 means the backend did not provide one (clock tempo estimation is then
+    // skipped for that event).
+    std::uint64_t timestampMicros = 0;
 };
 
 struct AudioDeviceSpec {
@@ -65,6 +69,8 @@ public:
     virtual void close() noexcept = 0;
     virtual bool poll(MidiEvent& event) noexcept = 0;
     virtual bool send(const MidiEvent& event) noexcept = 0;
+    // Human-readable port name for diagnostics; valid until close().
+    virtual const char* name() const noexcept { return ""; }
 };
 
 class ITriggerSink {

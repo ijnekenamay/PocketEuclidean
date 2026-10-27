@@ -12,6 +12,7 @@ namespace pocket::audio {
 enum class SequencerCommandType : std::uint8_t {
     Start,
     Stop,
+    Continue,
     SetTempo,
     SetRhythm,
     SetLfo,
@@ -89,10 +90,13 @@ inline bool applySequencerCommand(Sequencer& sequencer,
                                   const SequencerCommand& c) noexcept {
     switch (c.type) {
     case SequencerCommandType::Start:
-        sequencer.start();
+        sequencer.restart();
         return true;
     case SequencerCommandType::Stop:
         sequencer.stop();
+        return true;
+    case SequencerCommandType::Continue:
+        sequencer.resume();
         return true;
     case SequencerCommandType::SetTempo:
         return sequencer.setTempo(c.tempo);
@@ -130,7 +134,9 @@ inline bool applySequencerCommand(Sequencer& sequencer,
 class SequencerSync {
 public:
     SequencerSync(SequencerCommandQueue& queue, const Sequencer& initial)
-        : queue_(queue), shadow_(initial) {}
+        : queue_(queue),
+          shadow_(initial),
+          transportRevision_(initial.transportRevision()) {}
 
     void sync(const Sequencer& ui) {
         if (ui.tempo() != shadow_.tempo()) {
@@ -144,12 +150,24 @@ public:
         for (std::size_t t = 0; t < TrackCount; ++t) {
             syncTrack(t, ui.track(t));
         }
-        if (ui.isPlaying() != shadow_.isPlaying()) {
+        if (ui.transportRevision() != transportRevision_) {
             SequencerCommand c;
-            c.type = ui.isPlaying() ? SequencerCommandType::Start
-                                    : SequencerCommandType::Stop;
+            if (!ui.isPlaying()) {
+                c.type = SequencerCommandType::Stop;
+            } else if (ui.lastStartWasResume()) {
+                c.type = SequencerCommandType::Continue;
+            } else {
+                c.type = SequencerCommandType::Start;
+            }
             if (queue_.push(c)) {
-                ui.isPlaying() ? shadow_.start() : shadow_.stop();
+                if (c.type == SequencerCommandType::Start) {
+                    shadow_.restart();
+                } else if (c.type == SequencerCommandType::Continue) {
+                    shadow_.resume();
+                } else {
+                    shadow_.stop();
+                }
+                transportRevision_ = ui.transportRevision();
             }
         }
     }
@@ -283,6 +301,7 @@ private:
 
     SequencerCommandQueue& queue_;
     Sequencer shadow_;
+    std::uint32_t transportRevision_ = 0;
 };
 
 } // namespace pocket::audio

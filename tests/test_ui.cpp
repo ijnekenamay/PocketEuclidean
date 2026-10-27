@@ -1036,6 +1036,16 @@ void testScreensAndEditRanges() {
     expect(modulationUi.state().systemCategory ==
                platform::SettingsCategory::Midi,
            "system screen navigates categorized settings");
+    expect(!modulationUi.systemSettings().midi.enabled,
+           "MIDI input defaults to disabled");
+    const bool dirtyBeforeMidi = modulationUi.state().modified;
+    modulationUi.dispatch({Action::NavRight});
+    expect(modulationUi.systemSettings().midi.enabled &&
+               modulationUi.state().modified == dirtyBeforeMidi,
+           "MIDI category enables input without changing project dirty state");
+    modulationUi.dispatch({Action::NavLeft});
+    expect(!modulationUi.systemSettings().midi.enabled,
+           "MIDI category disables input on left");
     expect(platform::isValid(modulationUi.systemSettings()),
            "UI exposes a valid separate system settings model");
 

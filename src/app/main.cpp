@@ -2,11 +2,13 @@
 #ifdef POCKET_HAVE_SDL2
 #include "app/DesktopAudioEngine.h"
 #endif
+#include "app/SystemMidiBackend.h"
 #include "audio/PlaitsModels.h"
 #include "platform/SystemSettings.h"
 #include "platform/SettingsStore.h"
 #include "project/ProjectStore.h"
 #include "sequencer/EuclideanGenerator.h"
+#include "sequencer/MidiClock.h"
 #include "sequencer/Sequencer.h"
 #include "ui/InputMapping.h"
 #include "ui/MainScreenDrawList.h"
@@ -56,6 +58,8 @@ struct AppOptions {
     std::string dataDir = "conf";
     std::int32_t captureDelayMs = 0;
     std::string injectKeys;
+    int midiDevice = -1;
+    bool midiList = false;
 };
 
 bool parseInteger(const char* value, std::int32_t& output) {
@@ -116,6 +120,18 @@ bool parseArguments(int argc, char** argv, AppOptions& options) {
             options.injectKeys = argv[++index];
             continue;
         }
+        if (arg == "--midi-device" && index + 1 < argc) {
+            const long value = std::strtol(argv[++index], nullptr, 10);
+            if (value < 0 || value > 15) {
+                return false;
+            }
+            options.midiDevice = static_cast<int>(value);
+            continue;
+        }
+        if (arg == "--midi-list") {
+            options.midiList = true;
+            continue;
+        }
         if (arg == "--fullscreen") {
             options.fullscreen = true;
             continue;
@@ -170,7 +186,9 @@ bool parseArguments(int argc, char** argv, AppOptions& options) {
                 << "                    (e.g. \"space:tap,space:tap\"; keys:\n"
                 << "                    up/down/left/right/enter/escape/space/\n"
                 << "                    m/q/e/tab/pageup/pagedown/p/f1/shift;\n"
-                << "                    actions: tap/down/up/repeat)\n";
+                << "                    actions: tap/down/up/repeat)\n"
+                << "  --midi-list       List MIDI input ports and exit\n"
+                << "  --midi-device <n> MIDI input port index (0-15)\n";
             return false;
         }
         std::cerr << "Unknown argument: " << arg << '\n';
@@ -2056,9 +2074,13 @@ float themeRatio(pocket::platform::ThemeId theme) {
     return 0.0F;
 }
 
-std::vector<ScreenRow> systemRows(const pocket::platform::SystemSettings& settings) {
+std::vector<ScreenRow> systemRows(const pocket::platform::SystemSettings& settings,
+                                  bool midiOnline) {
     const auto theme = themeDisplayName(settings.display.theme);
     const float themeFill = themeRatio(settings.display.theme);
+    const bool midiEnabled = settings.midi.enabled;
+    const char* midiState =
+        !midiEnabled ? "OFF" : (midiOnline ? "ON" : "NO DEV");
     const float tempoRatio =
         static_cast<float>((settings.clock.initialTempoBpm -
                             pocket::Sequencer::MinTempoBpm) /
@@ -2066,8 +2088,8 @@ std::vector<ScreenRow> systemRows(const pocket::platform::SystemSettings& settin
                             pocket::Sequencer::MinTempoBpm));
     return {{"CLOCK", formatNumber("%.0f BPM", settings.clock.initialTempoBpm),
              BarMode::Unipolar, tempoRatio, true},
-            {"MIDI", settings.midi.enabled ? "ON" : "OFF", BarMode::Discrete,
-             0.0F, settings.midi.enabled},
+            {"MIDI", midiState, BarMode::Discrete,
+             0.0F, midiEnabled},
             {"AUDIO", std::to_string(settings.audio.sampleRate) + " HZ",
              BarMode::None, 0.0F, false},
             {"INPUT", settings.input.preferGameController ? "PAD FIRST" : "KEYS",
@@ -2335,8 +2357,8 @@ int runSdlApp(const AppOptions& options) {
         jit.intensity = static_cast<std::uint8_t>(25 + track * 6);
         sequencer.setJitter(track, jit);
     }
-    const pocket::platform::SystemCapabilities capabilities{true,  true,  true,
-                                                             true,  true,  true};
+    const pocket::platform::SystemCapabilities capabilities{
+        pocket::app::systemMidiInputAvailable(), true, true, true, true, true};
     pocket::ui::UiController ui(sequencer, capabilities);
     ui.resyncFromSequencer();
     const std::string settingsPath =
@@ -2357,6 +2379,17 @@ int runSdlApp(const AppOptions& options) {
     }
     std::string savedSettingsText =
         pocket::platform::serializeSettings(ui.systemSettings());
+    const auto midiDeviceIndex = static_cast<std::uint8_t>(
+        options.midiDevice >= 0 ? options.midiDevice
+                                : ui.systemSettings().midi.deviceIndex);
+    auto midiBackend =
+        pocket::app::makeSystemMidiBackend(midiDeviceIndex);
+    pocket::MidiClockFollower midiClock;
+    bool midiWanted = ui.systemSettings().midi.enabled;
+    bool midiOpen = false;
+    bool midiFailureLogged = false;
+    bool midiClockAnnounced = false;
+    std::uint64_t midiRetryAtMs = 0;
     pocket::ui::InputRepeater repeater;
     for (int i = 0; i < options.startScreen; ++i) {
         ui.dispatch({pocket::ui::Action::ScreenNext});
@@ -2908,6 +2941,55 @@ int runSdlApp(const AppOptions& options) {
             dispatchUi(*repeated);
         }
 
+        const bool midiEnabledNow = ui.systemSettings().midi.enabled;
+        if (midiEnabledNow != midiWanted) {
+            midiWanted = midiEnabledNow;
+            midiFailureLogged = false;
+            midiClockAnnounced = false;
+            midiRetryAtMs = 0;
+            if (!midiWanted && midiOpen) {
+                midiBackend->close();
+                midiOpen = false;
+                midiClock.reset();
+            }
+        }
+        if (midiWanted && !midiOpen && SDL_GetTicks64() >= midiRetryAtMs) {
+            midiRetryAtMs = SDL_GetTicks64() + 2000;
+            if (midiBackend->open()) {
+                midiOpen = true;
+                midiClockAnnounced = false;
+                std::cerr << "MIDI input: " << midiBackend->name() << '\n';
+            } else if (!midiFailureLogged) {
+                midiFailureLogged = true;
+                std::cerr << "MIDI input unavailable for device "
+                          << static_cast<int>(midiDeviceIndex)
+                          << "; retrying every 2 s\n";
+            }
+        }
+        if (midiOpen) {
+            pocket::platform::MidiEvent midiEvent;
+            while (midiBackend->poll(midiEvent)) {
+                midiClock.process(midiEvent);
+            }
+            if (midiClock.takeStart()) {
+                sequencer.restart();
+                std::cerr << "MIDI start\n";
+            } else if (midiClock.takeResume()) {
+                sequencer.resume();
+                std::cerr << "MIDI continue\n";
+            } else if (midiClock.takeStop()) {
+                sequencer.stop();
+                std::cerr << "MIDI stop\n";
+            }
+            if (midiClock.takeTempoChanged()) {
+                (void)sequencer.setTempo(midiClock.tempoBpm());
+            }
+            if (!midiClockAnnounced && midiClock.clockSeen()) {
+                midiClockAnnounced = true;
+                std::cerr << "MIDI clock detected\n";
+            }
+        }
+
         if (!audioRunning) {
             const auto now = std::chrono::steady_clock::now();
             const auto tickElapsed =
@@ -3026,7 +3108,7 @@ int runSdlApp(const AppOptions& options) {
             }
             case pocket::ui::Screen::System:
                 renderRows(renderer, *palette, "SYSTEM", headerStatus,
-                           systemRows(ui.systemSettings()),
+                           systemRows(ui.systemSettings(), midiOpen),
                            static_cast<std::size_t>(ui.state().systemCategory),
                            width, height);
                 break;
@@ -3090,6 +3172,11 @@ int main(int argc, char** argv) {
     AppOptions options;
     if (!parseArguments(argc, argv, options)) {
         return 2;
+    }
+
+    if (options.midiList) {
+        pocket::app::listSystemMidiInputs(std::cout);
+        return 0;
     }
 
     if (options.headless) {

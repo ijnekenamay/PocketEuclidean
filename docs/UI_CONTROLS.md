@@ -144,13 +144,17 @@ persist raw SDL or joystick button numbers in the shared profile.
   eight hex digits so all 32 bits stay visible on one line. The data model
   supports four LFOs per track, while the initial UI exposes only the first.
 - SYSTEM: Up/Down navigates Clock/Transport, MIDI, Audio, Input/Controls,
-  Display, Project/Storage, and About/Diagnostics categories. The versioned
-  settings model exists separately from project data; rendering and persistence
-  are not implemented. In the Display category, Left/Right cycles the global
-  theme (Quiet Dark → Warm Paper → High Contrast → Neon RGB → Outrun →
-  Amber CRT → Phosphor → VGA DOS → Quiet Dark); this preference
-  is independent of project dirty state. The controller can skip categories
-  unsupported by its supplied platform capabilities.
+  Display, Project/Storage, and About/Diagnostics categories. Settings are
+  persisted in the versioned v4 system file, separately from project data. In
+  the Clock/Transport category, Left/Right changes the initial tempo. In the
+  MIDI category, Left/Right disables/enables MIDI clock and transport input;
+  the row shows `OFF`, `ON`, or `NO DEV` when no port could be opened. This
+  preference is independent of project dirty state. The controller can skip
+  categories unsupported by its supplied platform capabilities (Linux /
+  PortMaster hides MIDI).
+- Display category: Left/Right cycles the global theme (Quiet Dark → Warm
+  Paper → High Contrast → Neon RGB → Outrun → Amber CRT → Phosphor → VGA DOS →
+  Quiet Dark); this preference is also independent of project dirty state.
 - Help, project-menu, WAV file-selector, and discard-confirmation modal states
   exist. The project menu emits explicit requests for the project manager;
   save/load serialization and scan-free rendering are implemented in the SDL

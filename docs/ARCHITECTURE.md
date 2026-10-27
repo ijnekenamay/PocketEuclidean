@@ -1,9 +1,9 @@
 # Pocket Euclidean — 拡張性アーキテクチャ
 
 This document describes the current code boundaries, the musical-state contract,
-and where future platform implementations belong. The interfaces in this
-document are contracts only; no SDL, audio-device, or MIDI backend is shipped
-yet.
+and where platform implementations belong. SDL2 audio/input and a Windows WinMM
+MIDI input adapter implement the platform interfaces; the sequencer and UI
+depend only on the contracts.
 
 ## Layer boundaries
 
@@ -107,14 +107,15 @@ timeline; call their `reset()` methods while audio production is stopped.
   `ui::paletteFor()` maps its stable `ThemeId` to semantic RGBA roles; an
   unsupported ID is reported as unavailable rather than silently selecting a
   different palette. The renderer is responsible for looking up colors by role.
-  `SystemSettings` format version 3 includes the selected theme; migration from
-  older settings versions will be required when serialization is implemented.
+  `SystemSettings` format version 4 includes the selected theme and the MIDI
+  preference (`enabled`, input/output channel, device index). v2/v3 files
+  migrate with MIDI disabled on channel 1 and the first device.
 - `ui::UiState` stores screen, focus, modal, and selection state. A UI screen
   change must not change the master-clock phase.
 
 Project files (`ProjectStore`) serialize the v9 musical model with strict
 field validation and percent-encoded sample paths; settings files
-(`SettingsStore`) serialize the separate v3 system model. Both reject invalid
+(`SettingsStore`) serialize the separate v4 system model. Both reject invalid
 input instead of guessing.
 
 ## Clock, events, and modulation
@@ -386,16 +387,27 @@ profiling on target hardware.
   mixer. Effects and safe UI-to-audio parameter transfer remain future work.
 - `IInputBackend` delivers logical UI actions rather than raw device indices.
 - `IMidiBackend` transfers generic MIDI events; it must not be implemented
-  inside the sequencer using a specific vendor library.
+  inside the sequencer using a specific vendor library. Each event carries an
+  optional monotonic receive timestamp in microseconds. The Windows adapter
+  (`src/app/SystemMidiBackend.cpp`) uses WinMM input callbacks and a bounded
+  SPSC ring; Linux/PortMaster builds return a null backend and report
+  `SystemCapabilities::midi == false`.
+- `MidiClockFollower` (`src/sequencer/MidiClock.*`) is platform independent. It
+  interprets 24-PPQN clock pulses, averages the last 24 intervals, clamps tempo
+  to 40–240 BPM, and resets its window on long gaps or outliers. It also latches
+  Start/Stop/Continue so the UI thread can consume one transport request per
+  frame without allocation or blocking.
 - `ITriggerSink` is the hand-off for sequencer tick results to downstream
   instrument/audio processing.
 - `SystemCapabilities` describes which global settings categories a target can
   expose. A UI/platform adapter should hide unsupported options while keeping
   one common settings model.
 
-The interfaces are intentionally small. MIDI Clock In/Out, Start/Stop/
-Continue, Note Out, CC mapping, MIDI Learn, and OS-specific adapter behavior
-remain future work.
+MIDI Clock In and Start/Stop/Continue are implemented for Windows. The UI
+thread polls the backend and applies transport through `Sequencer::restart()`
+(Start), `resume()` (Continue), and `stop()`; a monotonic transport revision is
+forwarded by `SequencerSync` so no edge is lost between frames. Clock Out, Note
+Out/In routing, CC mapping, and MIDI Learn remain future work.
 
 ## Real-time and thread-safety work still required
 

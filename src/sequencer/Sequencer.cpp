@@ -18,9 +18,29 @@ void Sequencer::start() noexcept {
         reset();
         playing_ = true;
     }
+    ++transportRevision_;
+    lastStartWasResume_ = false;
+}
+
+void Sequencer::restart() noexcept {
+    reset();
+    playing_ = true;
+    ++transportRevision_;
+    lastStartWasResume_ = false;
+}
+
+void Sequencer::resume() noexcept {
+    if (!playing_) {
+        playing_ = true;
+        ++transportRevision_;
+        lastStartWasResume_ = true;
+    }
 }
 
 void Sequencer::stop() noexcept {
+    if (playing_) {
+        ++transportRevision_;
+    }
     playing_ = false;
     secondsUntilNextTick_ = 0.0;
 }

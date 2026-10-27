@@ -31,6 +31,7 @@ add_library(pocket_euclidean
     src/audio/WavDecoder.cpp
     src/sequencer/EuclideanGenerator.cpp
     src/sequencer/Jitter.cpp
+    src/sequencer/MidiClock.cpp
     src/sequencer/Modulation.cpp
     src/sequencer/Sequencer.cpp
     src/platform/SystemSettings.cpp
@@ -54,8 +55,12 @@ set_target_properties(pocket_euclidean PROPERTIES
 if(POCKET_BUILD_APP)
     add_executable(pocket_euclidean_app
         src/app/main.cpp
+        src/app/SystemMidiBackend.cpp
     )
     target_link_libraries(pocket_euclidean_app PRIVATE pocket_euclidean)
+    if(WIN32)
+        target_link_libraries(pocket_euclidean_app PRIVATE winmm)
+    endif()
 
     find_package(SDL2 QUIET CONFIG)
     if(NOT SDL2_FOUND)

@@ -33,6 +33,7 @@ bool isValid(const SystemSettings& settings) noexcept {
            settings.clock.initialTempoBpm <= 240.0 &&
            settings.midi.inputChannel >= 1 && settings.midi.inputChannel <= 16 &&
            settings.midi.outputChannel >= 1 && settings.midi.outputChannel <= 16 &&
+           settings.midi.deviceIndex <= 15 &&
            settings.audio.sampleRate >= 8000 && settings.audio.sampleRate <= 192000 &&
            settings.audio.bufferFrames >= 32 && settings.audio.bufferFrames <= 4096 &&
            settings.audio.masterVolumePercent <= 100 &&

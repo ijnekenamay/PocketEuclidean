@@ -142,12 +142,14 @@ order:
    work. Treat this as the current project handoff and status summary.
 2. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — ownership boundaries,
    real-time constraints, audio parameter handoff, and core interfaces.
-3. [docs/PLATFORMS.md](docs/PLATFORMS.md) — build families, target ABI and
+3. [docs/MIDI.md](docs/MIDI.md) — MIDI clock/transport implementation, settings,
+   and platform limits.
+4. [docs/PLATFORMS.md](docs/PLATFORMS.md) — build families, target ABI and
    device validation gates.
-4. [docs/UI_CONTROLS.md](docs/UI_CONTROLS.md) and
+5. [docs/UI_CONTROLS.md](docs/UI_CONTROLS.md) and
    [docs/UI_DESIGN_POLICY.md](docs/UI_DESIGN_POLICY.md) — logical controls,
    current UI behavior, and rendering requirements.
-5. [docs/DECISIONS.md](docs/DECISIONS.md) — temporary defaults and unresolved
+6. [docs/DECISIONS.md](docs/DECISIONS.md) — temporary defaults and unresolved
    product/engineering decisions.
 
 Before changing code, check these constraints:
@@ -182,6 +184,8 @@ compatibility.
   status/roadmap document.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes state ownership and
   audio/UI/platform boundaries.
+- [docs/MIDI.md](docs/MIDI.md) describes MIDI clock/transport support, settings,
+  and current limitations.
 - [docs/UI_CONTROLS.md](docs/UI_CONTROLS.md) describes logical controls and
   testable UI behavior.
 - [docs/UI_DESIGN_POLICY.md](docs/UI_DESIGN_POLICY.md) describes the visual
