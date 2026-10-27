@@ -82,7 +82,9 @@ persist raw SDL or joystick button numbers in the shared profile.
   changed the effective rhythm; `JIT` means jitter moved, dropped, or inserted
   at least one trigger. Active steps are one solid flat fill (no accent cap),
   and rest steps have no inset border or center dot; playback position is shown
-  by the current step's fill brightness, not by an outline.
+  by the current step's fill brightness, not by an outline. A trigger that only
+  exists because jitter inserted or shifted it is drawn at half the cell width
+  with an accent-tinted fill; dropped triggers read as rests.
 - EDIT: Up/Down moves through length, fill, offset, instrument, volume, and
   mute. Left/Right edits the focused field; length is 2–32, fill is
   1–length, offset is 0–31, and volume is 0–100. Reducing length clamps fill.
@@ -145,7 +147,8 @@ persist raw SDL or joystick button numbers in the shared profile.
   Display, Project/Storage, and About/Diagnostics categories. The versioned
   settings model exists separately from project data; rendering and persistence
   are not implemented. In the Display category, Left/Right cycles the global
-  theme (Quiet Dark → Warm Paper → High Contrast → Quiet Dark); this preference
+  theme (Quiet Dark → Warm Paper → High Contrast → Neon RGB → Outrun →
+  Amber CRT → Phosphor → VGA DOS → Quiet Dark); this preference
   is independent of project dirty state. The controller can skip categories
   unsupported by its supplied platform capabilities.
 - Help, project-menu, WAV file-selector, and discard-confirmation modal states
@@ -196,6 +199,8 @@ Events fire 300 ms apart starting at 400 ms. Examples:
   and that Off reproduces the stored Euclidean pattern exactly.
 - [ ] With jitter enabled, verify MAIN and EDIT step bars follow the live
   post-jitter triggers and the `JIT` indicator appears when the pattern differs.
+- [ ] Verify jitter-inserted or shifted-in triggers render as half-width,
+  accent-tinted steps, while Euclid steps keep the full cell width.
 - [ ] Verify active steps are one solid fill and rest steps have no accent cap,
   inset border, or center dot.
 - [ ] Navigate all eight mixer tracks; adjust volume/pan and reverb/delay
@@ -229,8 +234,9 @@ Events fire 300 ms apart starting at 400 ms. Examples:
 - [ ] Test the primary Brick Pro layout at 1024×768 on the exact NextUI /
   PortMaster versions selected for release, and test scaling on at least one
   desktop OS.
-- [ ] Switch the global display theme among Quiet Dark, Warm Paper, and High
-  Contrast; verify every screen uses the selected semantic palette and the
+- [ ] Switch the global display theme through all built-in presets (Quiet Dark,
+  Warm Paper, High Contrast, Neon RGB, Outrun, Amber CRT, Phosphor, VGA DOS);
+  verify every screen uses the selected semantic palette and the
   choice does not change when opening another project.
 - [ ] Apply [UI_DESIGN_POLICY.md](UI_DESIGN_POLICY.md): confirm patterns are
   visually primary, selection is clear without boxed controls, and active and

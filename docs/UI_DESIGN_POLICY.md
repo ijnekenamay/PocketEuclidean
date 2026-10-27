@@ -130,7 +130,10 @@ Keep the pattern legible when playback is stopped.
 The step graphic also carries live modulation. When the audio thread reports a
 post-LFO effective rhythm, the bars follow it. When jitter drops, inserts, or
 shifts triggers, the bars follow the post-jitter event mask and the header adds
-a `JIT` marker; `MOD` denotes an LFO-changed rhythm.
+a `JIT` marker; `MOD` denotes an LFO-changed rhythm. A trigger that exists only
+because jitter inserted or shifted it uses half the cell width and a slightly
+accent-tinted fill, so it is never mistaken for a Euclidean step; a dropped
+trigger simply reads as a rest.
 
 ### 3.3 Rhythmic Distribution as Modern Art
 
@@ -245,10 +248,14 @@ Use a restrained palette: one background, one primary foreground, one subdued
 inactive color, and one accent for selected or especially important states.
 The renderer must obtain colors by semantic role from
 [`ui/ThemePalette.h`](../src/ui/ThemePalette.h), not hard-code RGB values in
-individual screens. The current built-in choices are Quiet Dark, Warm Paper,
-and High Contrast; they share the same roles and can be switched through the
-global `SystemSettings::display.theme` preference. Keep the palette set
-extensible without assigning different bright colors to each track.
+individual screens. The built-in choices are Quiet Dark, Warm Paper, High
+Contrast, Neon RGB, Outrun, Amber CRT, Phosphor, and VGA DOS; they share the
+same roles and can be switched through the global
+`SystemSettings::display.theme` preference. The retro-computer presets pair a
+near-black background with one saturated RGB phosphor (cyan, magenta, amber,
+green, or VGA yellow) and keep the same four semantic roles, so every screen
+switches as one piece. Keep the palette set extensible without assigning
+different bright colors to each track.
 
 Avoid rainbow track colors, decorative gradients, and a different bright color
 for each track. Identify tracks primarily by position and labeling, not color.

@@ -40,7 +40,7 @@ bool isValid(const SystemSettings& settings) noexcept {
            settings.input.repeatIntervalMs >= 10 &&
            settings.display.width >= 320 && settings.display.height >= 240 &&
            settings.display.scale >= 1 &&
-           theme <= static_cast<std::uint8_t>(ThemeId::HighContrast);
+           theme <= static_cast<std::uint8_t>(ThemeId::VgaDos);
 }
 
 } // namespace pocket::platform

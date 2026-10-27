@@ -5,7 +5,7 @@
 namespace pocket::ui {
 namespace {
 
-constexpr std::array<ThemeDefinition, 3> Themes{{
+constexpr std::array<ThemeDefinition, 8> Themes{{
     {platform::ThemeId::QuietDark,
      "Quiet Dark",
      {{16, 19, 19, 255},
@@ -24,6 +24,39 @@ constexpr std::array<ThemeDefinition, 3> Themes{{
       {255, 255, 255, 255},
       {176, 176, 176, 255},
       {255, 224, 64, 255}}},
+    // Retro-computer presets: near-black backgrounds with saturated RGB
+    // phosphors. Each keeps the same four semantic roles so every screen
+    // switches as one piece without per-widget color overrides.
+    {platform::ThemeId::NeonRgb,
+     "Neon RGB",
+     {{4, 6, 12, 255},
+      {0, 240, 255, 255},
+      {52, 84, 120, 255},
+      {255, 40, 140, 255}}},
+    {platform::ThemeId::Outrun,
+     "Outrun",
+     {{26, 8, 46, 255},
+      {120, 224, 255, 255},
+      {104, 76, 150, 255},
+      {255, 72, 184, 255}}},
+    {platform::ThemeId::AmberCrt,
+     "Amber CRT",
+     {{10, 6, 0, 255},
+      {255, 176, 0, 255},
+      {128, 82, 0, 255},
+      {255, 232, 120, 255}}},
+    {platform::ThemeId::Phosphor,
+     "Phosphor",
+     {{0, 8, 2, 255},
+      {80, 255, 120, 255},
+      {32, 112, 56, 255},
+      {190, 255, 120, 255}}},
+    {platform::ThemeId::VgaDos,
+     "VGA DOS",
+     {{0, 0, 42, 255},
+      {224, 224, 224, 255},
+      {72, 92, 168, 255},
+      {255, 216, 0, 255}}},
 }};
 
 std::size_t indexFor(platform::ThemeId theme) noexcept {

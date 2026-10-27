@@ -1533,7 +1533,7 @@ void testVersionedSettingsAndProjectSeparation() {
     const auto* highContrast =
         pocket::ui::paletteFor(pocket::platform::ThemeId::HighContrast);
     bool themeCatalogValid =
-        pocket::ui::themeCount() == 3 &&
+        pocket::ui::themeCount() >= 8 &&
         pocket::ui::themeAt(pocket::ui::themeCount()) == nullptr;
     for (std::size_t index = 0; index < pocket::ui::themeCount(); ++index) {
         const auto* option = pocket::ui::themeAt(index);
@@ -2118,7 +2118,7 @@ void testSettingsStore() {
     settings.audio.sampleRate = 44100;
     settings.audio.bufferFrames = 512;
     settings.audio.masterVolumePercent = 65;
-    settings.display.theme = platform::ThemeId::HighContrast;
+    settings.display.theme = platform::ThemeId::VgaDos;
     settings.input.repeatDelayMs = 400;
     const auto text = platform::serializeSettings(settings);
     platform::SystemSettings parsed;
@@ -2126,7 +2126,7 @@ void testSettingsStore() {
     expect(platform::parseSettings(text, parsed, &error), "settings parse: " + error);
     expect(platform::serializeSettings(parsed) == text, "settings round-trip");
     expect(parsed.audio.masterVolumePercent == 65 &&
-               parsed.display.theme == platform::ThemeId::HighContrast,
+               parsed.display.theme == platform::ThemeId::VgaDos,
            "settings values restored");
 
     platform::SystemSettings untouched;

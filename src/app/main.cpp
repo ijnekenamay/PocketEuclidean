@@ -850,6 +850,15 @@ void renderMainScreen(SDL_Renderer* renderer,
         const std::int32_t bh = command.height;
 
         auto fillColor = command.color;
+        const auto& row = snapshot.tracks[trackIdx];
+        const bool baseActive = pocket::EuclideanGenerator::isActive(
+            row.rhythm,
+            static_cast<std::uint8_t>(
+                std::min<std::size_t>(curStep, row.rhythm.length - 1)));
+        // A step that only fires because jitter inserted or shifted it keeps
+        // half the cell and a slightly greener fill, so it never reads as a
+        // plain Euclidean step.
+        const bool jitterOnly = command.active && !baseActive;
         if (command.muted) {
             fillColor = command.active
                             ? blendColor(frame.palette.background,
@@ -864,7 +873,10 @@ void renderMainScreen(SDL_Renderer* renderer,
         } else if (command.active) {
             // Active steps are one flat solid fill; selection is carried by
             // the header and track marker, not by a second color layer.
-            fillColor = frame.palette.primary;
+            fillColor = jitterOnly
+                            ? blendColor(frame.palette.primary,
+                                         frame.palette.accent, 0.60F)
+                            : frame.palette.primary;
         } else {
             // Rest step: flat matte tile of identical height
             fillColor = blendColor(frame.palette.background,
@@ -875,8 +887,11 @@ void renderMainScreen(SDL_Renderer* renderer,
             fillColor = blendColor(fillColor, frame.palette.accent, light);
         }
 
+        const std::int32_t barW =
+            jitterOnly ? std::max<std::int32_t>(1, bw / 2) : bw;
+        const std::int32_t barX = bx + (bw - barW) / 2;
         setColor(renderer, fillColor);
-        fillRect(renderer, bx, by, bw, bh);
+        fillRect(renderer, barX, by, barW, bh);
     }
     drawFooter(renderer, frame.palette, width, height);
 }
@@ -1001,20 +1016,30 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
         const bool active =
             jitterValid ? ((jitterEvents >> step) & 1U) != 0
                         : pocket::EuclideanGenerator::isActive(rhythm, step);
+        const bool baseActive = pocket::EuclideanGenerator::isActive(rhythm, step);
+        // Jitter-only triggers are half-width and slightly accent-tinted so
+        // they stand apart from the Euclidean grid without adding decoration.
+        const bool jitterOnly = active && !baseActive;
         const bool isPlayhead =
             livePlaying && (shownPosition == step);
 
         // Equal vertical height for both active and rest steps. Active steps
         // are one solid fill with no accent cap or inset frame.
+        const auto activeColor =
+            jitterOnly ? blendColor(palette.primary, palette.accent, 0.60F)
+                       : palette.primary;
         const auto color =
             isPlayhead
                 ? (active ? palette.accent
                           : blendColor(palette.background, palette.accent, 0.40F))
-                : (active ? palette.primary
+                : (active ? activeColor
                           : blendColor(palette.background, palette.subdued,
                                        0.24F));
+        const std::int32_t drawW =
+            jitterOnly ? std::max<std::int32_t>(1, barW / 2) : barW;
+        const std::int32_t drawX = cellX0 + (barW - drawW) / 2;
         setColor(renderer, color);
-        fillRect(renderer, cellX0, heroY, barW, heroH);
+        fillRect(renderer, drawX, heroY, drawW, heroH);
     }
 
     // Bottom section: 8-Track Polymetric Phase Matrix with compact geometric instrument markers (no T1..T8 text!)
@@ -2002,16 +2027,38 @@ std::vector<ScreenRow> modulationRows(const pocket::TrackState& track) {
              false}};
 }
 
-std::vector<ScreenRow> systemRows(const pocket::platform::SystemSettings& settings) {
-    const char* theme = "QUIET DARK";
-    float themeRatio = 1.0F / 3.0F;
-    if (settings.display.theme == pocket::platform::ThemeId::WarmPaper) {
-        theme = "WARM PAPER";
-        themeRatio = 2.0F / 3.0F;
-    } else if (settings.display.theme == pocket::platform::ThemeId::HighContrast) {
-        theme = "HIGH CONTRAST";
-        themeRatio = 1.0F;
+std::string uppercaseAscii(std::string text) {
+    for (char& ch : text) {
+        if (ch >= 'a' && ch <= 'z') {
+            ch = static_cast<char>(ch - 'a' + 'A');
+        }
     }
+    return text;
+}
+
+std::string themeDisplayName(pocket::platform::ThemeId theme) {
+    const auto* definition = pocket::ui::themeFor(theme);
+    return definition == nullptr ? std::string("UNKNOWN")
+                                 : uppercaseAscii(std::string(definition->name));
+}
+
+float themeRatio(pocket::platform::ThemeId theme) {
+    const auto count = pocket::ui::themeCount();
+    if (count == 0) {
+        return 0.0F;
+    }
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto* option = pocket::ui::themeAt(index);
+        if (option != nullptr && option->id == theme) {
+            return static_cast<float>(index + 1) / static_cast<float>(count);
+        }
+    }
+    return 0.0F;
+}
+
+std::vector<ScreenRow> systemRows(const pocket::platform::SystemSettings& settings) {
+    const auto theme = themeDisplayName(settings.display.theme);
+    const float themeFill = themeRatio(settings.display.theme);
     const float tempoRatio =
         static_cast<float>((settings.clock.initialTempoBpm -
                             pocket::Sequencer::MinTempoBpm) /
@@ -2025,7 +2072,7 @@ std::vector<ScreenRow> systemRows(const pocket::platform::SystemSettings& settin
              BarMode::None, 0.0F, false},
             {"INPUT", settings.input.preferGameController ? "PAD FIRST" : "KEYS",
              BarMode::Discrete, 0.0F, settings.input.preferGameController},
-            {"DISPLAY", theme, BarMode::Unipolar, themeRatio, true},
+            {"DISPLAY", theme, BarMode::Unipolar, themeFill, true},
             {"STORAGE", "DEFAULT", BarMode::None, 0.0F, false},
             {"ABOUT", "POCKET EUC", BarMode::None, 0.0F, false}};
 }

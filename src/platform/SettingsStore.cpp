@@ -84,7 +84,7 @@ bool parseSettings(const std::string& text, SystemSettings& out,
         } else if (key == "theme") {
             int theme = 0;
             ok = static_cast<bool>(in >> theme) && theme >= 0 &&
-                 theme <= static_cast<int>(ThemeId::HighContrast);
+                 theme <= static_cast<int>(ThemeId::VgaDos);
             s.display.theme = static_cast<ThemeId>(theme);
         }
         if (!ok) {

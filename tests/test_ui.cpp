@@ -361,18 +361,21 @@ void testStepLightBank() {
 void testThemeCatalogCycling() {
     using namespace pocket;
 
-    expect(ui::adjacentTheme(platform::ThemeId::QuietDark, 1) ==
-               platform::ThemeId::WarmPaper &&
-               ui::adjacentTheme(platform::ThemeId::WarmPaper, 1) ==
-                   platform::ThemeId::HighContrast &&
-               ui::adjacentTheme(platform::ThemeId::HighContrast, 1) ==
-                   platform::ThemeId::QuietDark,
-           "theme catalog cycles forward in display order");
-    expect(ui::adjacentTheme(platform::ThemeId::QuietDark, -1) ==
-               platform::ThemeId::HighContrast &&
-               ui::adjacentTheme(platform::ThemeId::HighContrast, -1) ==
-                   platform::ThemeId::WarmPaper,
-           "theme catalog cycles backward in display order");
+    bool forwardValid = ui::themeCount() >= 8;
+    bool backwardValid = forwardValid;
+    for (std::size_t index = 0; index < ui::themeCount(); ++index) {
+        const auto* current = ui::themeAt(index);
+        const auto* next = ui::themeAt((index + 1) % ui::themeCount());
+        const auto* previous =
+            ui::themeAt((index + ui::themeCount() - 1) % ui::themeCount());
+        forwardValid = forwardValid && current != nullptr && next != nullptr &&
+                       ui::adjacentTheme(current->id, 1) == next->id;
+        backwardValid =
+            backwardValid && current != nullptr && previous != nullptr &&
+            ui::adjacentTheme(current->id, -1) == previous->id;
+    }
+    expect(forwardValid, "theme catalog cycles forward in display order");
+    expect(backwardValid, "theme catalog cycles backward in display order");
     expect(!ui::adjacentTheme(platform::ThemeId::QuietDark, 0).has_value() &&
                !ui::adjacentTheme(static_cast<platform::ThemeId>(255), 1)
                     .has_value(),
@@ -1129,14 +1132,19 @@ void testSystemThemeSelection() {
     expect(ui.systemSettings().display.theme == platform::ThemeId::WarmPaper &&
                !ui.state().modified,
            "display settings switch theme without marking the musical project dirty");
-    ui.dispatch({Action::NavRight});
-    expect(ui.systemSettings().display.theme == platform::ThemeId::HighContrast,
-           "theme selection advances to High Contrast");
-    ui.dispatch({Action::NavRight});
-    expect(ui.systemSettings().display.theme == platform::ThemeId::QuietDark,
-           "theme selection wraps forward");
+    const platform::ThemeId themeOrder[] = {
+        platform::ThemeId::HighContrast, platform::ThemeId::NeonRgb,
+        platform::ThemeId::Outrun,       platform::ThemeId::AmberCrt,
+        platform::ThemeId::Phosphor,     platform::ThemeId::VgaDos,
+        platform::ThemeId::QuietDark};
+    for (const auto expected : themeOrder) {
+        ui.dispatch({Action::NavRight});
+        expect(ui.systemSettings().display.theme == expected &&
+                   !ui.state().modified,
+               "theme selection advances through the catalog and wraps forward");
+    }
     ui.dispatch({Action::NavLeft});
-    expect(ui.systemSettings().display.theme == platform::ThemeId::HighContrast,
+    expect(ui.systemSettings().display.theme == platform::ThemeId::VgaDos,
            "theme selection wraps backward");
 
     ui.dispatch({Action::NavUp});

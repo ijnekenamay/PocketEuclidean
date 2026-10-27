@@ -19,7 +19,12 @@ enum class SettingsCategory : std::uint8_t {
 enum class ThemeId : std::uint8_t {
     QuietDark,
     WarmPaper,
-    HighContrast
+    HighContrast,
+    NeonRgb,
+    Outrun,
+    AmberCrt,
+    Phosphor,
+    VgaDos
 };
 
 struct SystemCapabilities {
