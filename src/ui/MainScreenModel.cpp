@@ -24,11 +24,27 @@ bool buildSnapshot(
     for (std::size_t trackIndex = 0; trackIndex < TrackCount; ++trackIndex) {
         const auto& track = sequencer.track(trackIndex);
         EffectiveRhythm effective = track.effectiveRhythm;
+        std::uint32_t jitterEvents = 0;
+        bool jitterValid = false;
+        bool usedLiveRhythm = false;
         if (live != nullptr && live->active && live->mirror != nullptr) {
             const auto published = live->mirror->read(trackIndex);
             if (published.valid) {
                 effective = published.rhythm;
+                usedLiveRhythm = true;
+                if (published.jitterValid) {
+                    jitterEvents = published.jitterEvents;
+                    jitterValid = true;
+                }
             }
+        }
+        const bool liveOverlay = live != nullptr && live->active;
+        if (!jitterValid && !liveOverlay && !usedLiveRhythm &&
+            sequencer.isPlaying()) {
+            // Visual-only playback: the UI-side sequencer advances its own
+            // jitter state. When stopped, show the plain Euclidean pattern so
+            // a stale mask from the last run is never displayed.
+            jitterEvents = sequencer.jitterEventsMask(trackIndex, jitterValid);
         }
         const EuclideanConfig rhythm{effective.length, effective.fill,
                                      effective.offset};
@@ -45,7 +61,8 @@ bool buildSnapshot(
         row.selected = trackIndex == selectedTrack;
         for (std::uint8_t step = 0; step < rhythm.length; ++step) {
             row.activeSteps[step] =
-                EuclideanGenerator::isActive(rhythm, step);
+                jitterValid ? ((jitterEvents >> step) & 1U) != 0
+                            : EuclideanGenerator::isActive(rhythm, step);
         }
     }
 

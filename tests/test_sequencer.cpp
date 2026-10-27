@@ -503,6 +503,9 @@ void testJitterModesAndDeterminism() {
         expect(result && *result == EuclideanGenerator::isActive(source, step),
                "disabled jitter exactly preserves the source Euclidean pattern");
     }
+    bool maskValid = false;
+    expect(!engine.eventMask(0, maskValid) && !maskValid,
+           "jitter display mask is invalid before enabled decisions are built");
 
     config.enabled = true;
     config.mode = JitterMode::Insert;
@@ -518,6 +521,9 @@ void testJitterModesAndDeterminism() {
     }
     expect(insertedTriggers == source.length,
            "100 percent insert fills inactive positions without changing source");
+    expect(engine.eventMask(0, maskValid) && maskValid &&
+               engine.eventMask(0, maskValid) == 0xFFU,
+           "insert mode exposes every trigger position in the display mask");
     config.intensity = 0;
     engine.invalidate(0);
     unsigned int zeroIntensityTriggers = 0;
@@ -660,6 +666,13 @@ void testSequencerJitterTransportAndProjectState() {
     expect(sequencer.track(0).rhythm.length == 8 &&
                sequencer.track(0).rhythm.fill == 4,
            "jitter never destructively changes the stored Euclidean pattern");
+
+    bool jitterMaskValid = false;
+    expect(sequencer.jitterEventsMask(0, jitterMaskValid) == 0 &&
+               jitterMaskValid,
+           "sequencer exposes a valid all-dropped jitter mask");
+    expect(!sequencer.jitterEventsMask(1, jitterMaskValid) && !jitterMaskValid,
+           "tracks without jitter report no live display mask");
 
     const project::ProjectData project;
     expect(!project.tracks[0].jitter.enabled,

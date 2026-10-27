@@ -132,6 +132,10 @@ bool AudioCallbackProcessor::process(float* interleavedStereo,
                     modulation_->publish(t, s.effectiveRhythm,
                                          static_cast<float>(lfo.phase),
                                          static_cast<float>(lfo.value));
+                    bool jitterValid = false;
+                    const auto jitterEvents =
+                        sequencer_.jitterEventsMask(t, jitterValid);
+                    modulation_->publishJitter(t, jitterEvents, jitterValid);
                 }
             }
             if (tickCallback_ != nullptr) {

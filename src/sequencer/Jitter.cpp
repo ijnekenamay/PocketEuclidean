@@ -90,6 +90,26 @@ std::optional<bool> JitterEngine::process(
     return runtime.events[step];
 }
 
+std::uint32_t JitterEngine::eventMask(std::size_t track,
+                                      bool& valid) const noexcept {
+    valid = false;
+    if (track >= runtimes_.size()) {
+        return 0;
+    }
+    const auto& runtime = runtimes_[track];
+    if (runtime.dirty) {
+        return 0;
+    }
+    std::uint32_t mask = 0;
+    for (std::size_t step = 0; step < runtime.events.size(); ++step) {
+        if (runtime.events[step]) {
+            mask |= 1U << step;
+        }
+    }
+    valid = true;
+    return mask;
+}
+
 std::uint32_t JitterEngine::nextRandom(JitterRuntime& runtime) noexcept {
     auto value = runtime.randomState;
     value ^= value << 13;

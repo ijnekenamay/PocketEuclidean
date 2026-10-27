@@ -142,6 +142,11 @@ public:
                                std::size_t lfoIndex = 0) const noexcept {
         return modulation_.display(trackIndex, lfoIndex);
     }
+    // Live post-jitter trigger mask for display. Valid only while jitter is
+    // enabled on the track and the engine has decisions for the current
+    // config; otherwise callers should show the plain Euclidean pattern.
+    std::uint32_t jitterEventsMask(std::size_t trackIndex,
+                                   bool& valid) const noexcept;
     bool setRhythm(std::size_t index, const EuclideanConfig& config);
     bool setLfo(std::size_t trackIndex,
                 const LfoConfig& config,

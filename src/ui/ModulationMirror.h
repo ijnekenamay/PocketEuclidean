@@ -14,9 +14,11 @@ namespace pocket::ui {
 // the newest value per track, so plain atomics are enough (no queue).
 struct LiveModulationState {
     EffectiveRhythm rhythm{};
-    float lfoPhase = 0.0F; // [0, 1)
-    float lfoValue = 0.0F; // [-1, 1]
-    bool valid = false;    // audio thread published at least once
+    float lfoPhase = 0.0F;  // [0, 1)
+    float lfoValue = 0.0F;  // [-1, 1]
+    std::uint32_t jitterEvents = 0; // bit n = step n triggers after jitter
+    bool valid = false;             // audio thread published at least once
+    bool jitterValid = false;       // jitterEvents reflects the current config
 };
 
 // Publishes the effective (modulated) rhythm plus LFO phase/waveform so the
@@ -38,6 +40,18 @@ public:
         value_[track].store(floatBits(lfoValue), std::memory_order_relaxed);
     }
 
+    // Published separately because jitter is opt-in per track and the main
+    // rhythm overlay must remain valid when no jitter events exist.
+    void publishJitter(std::size_t track,
+                       std::uint32_t events,
+                       bool valid) noexcept {
+        if (track >= Tracks) {
+            return;
+        }
+        jitter_[track].store(events, std::memory_order_relaxed);
+        jitterValid_[track].store(valid, std::memory_order_relaxed);
+    }
+
     LiveModulationState read(std::size_t track) const noexcept {
         LiveModulationState state;
         if (track >= Tracks) {
@@ -54,6 +68,10 @@ public:
         };
         state.lfoPhase = bitsFloat(phase_[track].load(std::memory_order_relaxed));
         state.lfoValue = bitsFloat(value_[track].load(std::memory_order_relaxed));
+        state.jitterEvents =
+            jitter_[track].load(std::memory_order_relaxed);
+        state.jitterValid =
+            jitterValid_[track].load(std::memory_order_relaxed);
         state.valid = true;
         return state;
     }
@@ -63,12 +81,15 @@ public:
             rhythm_[track].store(0, std::memory_order_relaxed);
             phase_[track].store(0, std::memory_order_relaxed);
             value_[track].store(0, std::memory_order_relaxed);
+            jitter_[track].store(0, std::memory_order_relaxed);
+            jitterValid_[track].store(false, std::memory_order_relaxed);
         }
     }
 
     bool isLockFree() const noexcept {
         return rhythm_[0].is_lock_free() && phase_[0].is_lock_free() &&
-               value_[0].is_lock_free();
+               value_[0].is_lock_free() && jitter_[0].is_lock_free() &&
+               jitterValid_[0].is_lock_free();
     }
 
 private:
@@ -99,6 +120,8 @@ private:
     std::array<std::atomic<std::uint32_t>, Tracks> rhythm_{};
     std::array<std::atomic<std::uint32_t>, Tracks> phase_{};
     std::array<std::atomic<std::uint32_t>, Tracks> value_{};
+    std::array<std::atomic<std::uint32_t>, Tracks> jitter_{};
+    std::array<std::atomic<bool>, Tracks> jitterValid_{};
 };
 
 } // namespace pocket::ui

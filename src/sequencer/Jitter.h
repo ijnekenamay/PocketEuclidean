@@ -64,6 +64,11 @@ public:
                                 std::uint8_t step,
                                 std::uint64_t masterTick) noexcept;
 
+    // Bit n is set when step n triggers after jitter. `valid` is false when
+    // the decisions are stale (config or seed changed) or the track is out of
+    // range, so callers can fall back to the plain Euclidean pattern.
+    std::uint32_t eventMask(std::size_t track, bool& valid) const noexcept;
+
 private:
     static std::uint32_t nextRandom(JitterRuntime& runtime) noexcept;
     static bool passesProbability(JitterRuntime& runtime,

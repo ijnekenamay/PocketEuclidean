@@ -114,7 +114,16 @@ primary distinction:
 - Selected track or editable element: subtly emphasized, without a surrounding
   box.
 
+Each step is one flat fill. Active steps must not add a contrasting cap line,
+and inactive steps must not add an inset frame, ruled border, or center dot.
+Playback position is conveyed by the fill's luminance, not by an outline.
+
 Keep the pattern legible when playback is stopped.
+
+The step graphic also carries live modulation. When the audio thread reports a
+post-LFO effective rhythm, the bars follow it. When jitter drops, inserts, or
+shifts triggers, the bars follow the post-jitter event mask and the header adds
+a `JIT` marker; `MOD` denotes an LFO-changed rhythm.
 
 ### 3.3 Rhythmic Distribution as Modern Art
 

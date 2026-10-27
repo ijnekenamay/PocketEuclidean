@@ -77,9 +77,17 @@ persist raw SDL or joystick button numbers in the shared profile.
   every track and the master clock to step zero and starts playback; the next
   press stops the clock. Releasing the key or button does nothing, and OS
   key-repeat cannot toggle again.
+  While playing, the step bars show the post-LFO, post-jitter triggers the
+  audio thread actually fires. `MOD` in the header summary means the LFO
+  changed the effective rhythm; `JIT` means jitter moved, dropped, or inserted
+  at least one trigger. Active steps are one solid flat fill (no accent cap),
+  and rest steps have no inset border or center dot; playback position is shown
+  by the current step's fill brightness, not by an outline.
 - EDIT: Up/Down moves through length, fill, offset, instrument, volume, and
   mute. Left/Right edits the focused field; length is 2–32, fill is
   1–length, offset is 0–31, and volume is 0–100. Reducing length clamps fill.
+  The large step explorer and the lower polymetric matrix use the same live
+  post-jitter triggers as MAIN, and the banner carries the `JIT` indicator.
 - SOUND: Up/Down selects per-track Attack, Decay, Filter Enable, Filter
   Cutoff, Synth Engine, Plaits Model, Synth Pitch, Synth Morph, Synth Timbre,
   Synth Color, Sample, Delay Time, Delay Feedback, and Delay Mix fields;
@@ -183,6 +191,10 @@ Events fire 300 ms apart starting at 400 ms. Examples:
   effective values clamp/quantize, and master transport phase is preserved.
 - [ ] Verify jitter Enable and Intensity are directly reachable in MODULATION,
   and that Off reproduces the stored Euclidean pattern exactly.
+- [ ] With jitter enabled, verify MAIN and EDIT step bars follow the live
+  post-jitter triggers and the `JIT` indicator appears when the pattern differs.
+- [ ] Verify active steps are one solid fill and rest steps have no accent cap,
+  inset border, or center dot.
 - [ ] Navigate all eight mixer tracks; adjust volume/pan and reverb/delay
   sends, toggle mute without changing transport phase, and verify master
   volume persists across projects.

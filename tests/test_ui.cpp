@@ -438,6 +438,12 @@ void testLiveModulationOverlay() {
                live.lfoValue == -0.5F,
            "modulation mirror round-trips rhythm and LFO state");
 
+    mirror.publishJitter(0, 0x0AAAU, true);
+    const auto liveJitter = mirror.read(0);
+    expect(liveJitter.jitterValid && liveJitter.jitterEvents == 0x0AAAU,
+           "modulation mirror round-trips the post-jitter trigger mask");
+    mirror.publishJitter(0, 0, false);
+
     mirror.publish(ui::ModulationMirror::Tracks, {8, 3, 0}, 1.0F, 1.0F);
     expect(!mirror.read(ui::ModulationMirror::Tracks).valid,
            "modulation mirror ignores out-of-range tracks");
@@ -464,6 +470,15 @@ void testLiveModulationOverlay() {
     expect(activeCount == 5,
            "live overlay recomputes active steps for the modulated rhythm");
 
+    mirror.publishJitter(0, 0x0AAAU, true);
+    expect(ui::makeMainScreenSnapshot(sequencer, 0, audio, overlay, snapshot) &&
+               !snapshot.tracks[0].activeSteps[0] &&
+               snapshot.tracks[0].activeSteps[1] &&
+               !snapshot.tracks[0].activeSteps[2] &&
+               snapshot.tracks[0].activeSteps[3],
+           "live overlay applies the post-jitter trigger mask");
+    mirror.publishJitter(0, 0, false);
+
     overlay.active = false;
     expect(ui::makeMainScreenSnapshot(sequencer, 0, audio, overlay, snapshot) &&
                snapshot.tracks[0].rhythm.length == 16 &&
@@ -473,6 +488,44 @@ void testLiveModulationOverlay() {
     mirror.reset();
     expect(!mirror.read(0).valid,
            "resetting the mirror clears the published state");
+}
+
+void testJitterOverlayFallback() {
+    using namespace pocket;
+
+    Sequencer sequencer;
+    expect(sequencer.setRhythm(0, {8, 4, 0}),
+           "configure rhythm for the UI-side jitter overlay");
+    JitterConfig jitter;
+    jitter.enabled = true;
+    jitter.mode = JitterMode::Drop;
+    jitter.intensity = 100;
+    jitter.rate = JitterRate::Quarter;
+    expect(sequencer.setJitter(0, jitter),
+           "configure jitter for the UI-side overlay");
+    sequencer.start();
+    (void)sequencer.tick();
+
+    bool jitterValid = false;
+    expect(sequencer.jitterEventsMask(0, jitterValid) == 0 && jitterValid,
+           "sequencer exposes the all-dropped mask after its own tick");
+
+    ui::MainScreenSnapshot snapshot;
+    expect(ui::makeMainScreenSnapshot(sequencer, 0, snapshot),
+           "main snapshot builds with the UI-side jitter mask");
+    std::size_t activeCount = 0;
+    for (std::uint8_t step = 0; step < snapshot.tracks[0].rhythm.length;
+         ++step) {
+        activeCount += snapshot.tracks[0].activeSteps[step] ? 1U : 0U;
+    }
+    expect(activeCount == 0,
+           "UI-side jitter mask removes dropped steps from the snapshot");
+
+    jitter.enabled = false;
+    expect(sequencer.setJitter(0, jitter),
+           "disable jitter after the overlay check");
+    expect(sequencer.jitterEventsMask(0, jitterValid) == 0 && !jitterValid,
+           "disabled jitter reports no live display mask");
 }
 
 void testMainScreenLayout() {
@@ -1223,6 +1276,7 @@ int main() {
     testThemeCatalogCycling();
     testMainScreenSnapshot();
     testLiveModulationOverlay();
+    testJitterOverlayFallback();
     testMainScreenLayout();
     testMainScreenDrawList();
     testTrackNavigationAndTransport();

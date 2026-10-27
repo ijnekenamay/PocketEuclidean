@@ -727,8 +727,19 @@ void renderMainScreen(SDL_Renderer* renderer,
                 shownRhythm.offset != selectedTrack.rhythm.offset;
         }
     }
+    bool jitterActive = false;
+    const auto& selectedRow =
+        snapshot.tracks[ui.state().selectedTrack];
+    for (std::uint8_t step = 0; step < selectedRow.rhythm.length; ++step) {
+        if (selectedRow.activeSteps[step] !=
+            pocket::EuclideanGenerator::isActive(selectedRow.rhythm, step)) {
+            jitterActive = true;
+            break;
+        }
+    }
     const std::string trackSummary =
-        std::string(modulated ? "MOD " : "") + "E(" +
+        std::string(modulated ? "MOD " : "") +
+        (jitterActive ? "JIT " : "") + "E(" +
         std::to_string(shownRhythm.fill) + "," +
         std::to_string(shownRhythm.length) + "," +
         std::to_string(shownRhythm.offset) + ")  VOL " +
@@ -839,10 +850,9 @@ void renderMainScreen(SDL_Renderer* renderer,
                             : blendColor(frame.palette.background,
                                          frame.palette.accent, 0.38F);
         } else if (command.active) {
-            fillColor = command.selected
-                            ? blendColor(frame.palette.primary,
-                                         frame.palette.accent, 0.32F)
-                            : frame.palette.primary;
+            // Active steps are one flat solid fill; selection is carried by
+            // the header and track marker, not by a second color layer.
+            fillColor = frame.palette.primary;
         } else {
             // Rest step: flat matte tile of identical height
             fillColor = blendColor(frame.palette.background,
@@ -855,37 +865,6 @@ void renderMainScreen(SDL_Renderer* renderer,
 
         setColor(renderer, fillColor);
         fillRect(renderer, bx, by, bw, bh);
-
-        if (command.active && !command.muted) {
-            // Crisp architectural top bar on active pulse blocks
-            setColor(renderer,
-                     command.next || command.selected
-                         ? frame.palette.accent
-                         : blendColor(frame.palette.primary,
-                                      frame.palette.accent, 0.55F));
-            fillRect(renderer, bx, by, bw, std::max<std::int32_t>(3, bh / 12));
-        } else if (!command.active && bw >= 6 && bh >= 10) {
-            // Subtle inner recessed geometric plane on rest tiles so the grid reads as tactile hardware pads
-            const auto innerColor =
-                blendColor(frame.palette.background, frame.palette.subdued,
-                           command.selected ? 0.20F : 0.12F);
-            setColor(renderer, innerColor);
-            fillRect(renderer, bx + 2, by + 2, bw - 4, bh - 4);
-            // Tiny center geometric dot inside rest tile
-            setColor(renderer,
-                     blendColor(frame.palette.background,
-                                command.next ? frame.palette.accent
-                                             : frame.palette.subdued,
-                                command.next ? 0.85F : 0.35F));
-            fillRect(renderer, bx + bw / 2 - 1, by + bh / 2 - 1, 2, 2);
-        }
-
-        // Playhead geometric frame on current step
-        if (command.next) {
-            setColor(renderer, frame.palette.accent);
-            fillRect(renderer, bx, by, bw, 3);
-            fillRect(renderer, bx, by + bh - 3, bw, 3);
-        }
     }
     drawFooter(renderer, frame.palette, width, height);
 }
@@ -914,6 +893,23 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
             }
         }
         return fallback;
+    };
+    const auto jitterFor = [&](std::size_t track, bool& valid) -> std::uint32_t {
+        valid = false;
+        if (livePlaying && engine != nullptr) {
+            const auto published = engine->modulation().read(track);
+            if (published.valid && published.jitterValid) {
+                valid = true;
+                return published.jitterEvents;
+            }
+            // The audio thread owns the live state; never fall back to the
+            // UI-side copy while it is running.
+            return 0;
+        }
+        if (!sequencer.isPlaying()) {
+            return 0;
+        }
+        return sequencer.jitterEventsMask(track, valid);
     };
     const auto shownRhythm = displayRhythm(selectedIdx);
     const pocket::EuclideanConfig rhythm{
@@ -947,13 +943,24 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
 
     // Top row: Summary banner
     const std::int32_t bannerH = 18;
+    bool jitterValid = false;
+    const auto jitterEvents = jitterFor(selectedIdx, jitterValid);
+    bool jitterActive = false;
+    for (std::uint8_t step = 0; jitterValid && step < rhythm.length; ++step) {
+        const bool triggers = ((jitterEvents >> step) & 1U) != 0;
+        if (triggers != pocket::EuclideanGenerator::isActive(rhythm, step)) {
+            jitterActive = true;
+            break;
+        }
+    }
     const float density =
         rhythm.length > 0
             ? (100.0F * static_cast<float>(rhythm.fill) /
                static_cast<float>(rhythm.length))
             : 0.0F;
     const std::string bannerLeft =
-        std::string(modulated ? "MOD " : "") + "E(" +
+        std::string(modulated ? "MOD " : "") +
+        (jitterActive ? "JIT " : "") + "E(" +
         std::to_string(rhythm.fill) + "," +
         std::to_string(rhythm.length) + "," + std::to_string(rhythm.offset) +
         ")   DENSITY " + formatNumber("%.0f%%", density);
@@ -979,39 +986,23 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
                              : 0;
         const auto barW = std::max<std::int32_t>(1, cellW - gap);
 
-        const bool active = pocket::EuclideanGenerator::isActive(rhythm, step);
+        const bool active =
+            jitterValid ? ((jitterEvents >> step) & 1U) != 0
+                        : pocket::EuclideanGenerator::isActive(rhythm, step);
         const bool isPlayhead =
             livePlaying && (shownPosition == step);
 
-        // Equal vertical height for both active and rest steps!
+        // Equal vertical height for both active and rest steps. Active steps
+        // are one solid fill with no accent cap or inset frame.
         const auto color =
             isPlayhead
                 ? (active ? palette.accent
                           : blendColor(palette.background, palette.accent, 0.40F))
-                : (active ? blendColor(palette.primary, palette.accent, 0.28F)
+                : (active ? palette.primary
                           : blendColor(palette.background, palette.subdued,
                                        0.24F));
         setColor(renderer, color);
         fillRect(renderer, cellX0, heroY, barW, heroH);
-
-        if (active) {
-            setColor(renderer, palette.accent);
-            fillRect(renderer, cellX0, heroY, barW, 4);
-        } else if (barW >= 6) {
-            setColor(renderer,
-                     blendColor(palette.background, palette.subdued, 0.16F));
-            fillRect(renderer, cellX0 + 2, heroY + 2, barW - 4, heroH - 4);
-            setColor(renderer,
-                     blendColor(palette.background, palette.subdued, 0.40F));
-            fillRect(renderer, cellX0 + barW / 2 - 1, heroY + heroH / 2 - 1, 2,
-                     2);
-        }
-
-        if (isPlayhead) {
-            setColor(renderer, palette.accent);
-            fillRect(renderer, cellX0, heroY, barW, 3);
-            fillRect(renderer, cellX0, heroY + heroH - 3, barW, 3);
-        }
     }
 
     // Bottom section: 8-Track Polymetric Phase Matrix with compact geometric instrument markers (no T1..T8 text!)
@@ -1058,6 +1049,8 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
             }
         }
 
+        bool trJitterValid = false;
+        const auto trJitter = jitterFor(t, trJitterValid);
         const auto trLen = static_cast<std::int32_t>(trRhythm.length);
         for (std::uint8_t s = 0; s < trRhythm.length; ++s) {
             const auto sx0 =
@@ -1066,7 +1059,8 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
                 stripX + (static_cast<std::int32_t>(s + 1) * stripW) / trLen;
             const auto sw = std::max<std::int32_t>(1, sx1 - sx0 - 1);
             const bool sActive =
-                pocket::EuclideanGenerator::isActive(trRhythm, s);
+                trJitterValid ? ((trJitter >> s) & 1U) != 0
+                              : pocket::EuclideanGenerator::isActive(trRhythm, s);
             const auto sColor =
                 sActive ? (isSel ? palette.accent : palette.primary)
                         : blendColor(palette.background, palette.subdued,

@@ -88,6 +88,15 @@ bool Sequencer::setJitter(std::size_t trackIndex,
     return true;
 }
 
+std::uint32_t Sequencer::jitterEventsMask(std::size_t trackIndex,
+                                          bool& valid) const noexcept {
+    valid = false;
+    if (trackIndex >= TrackCount || !tracks_[trackIndex].jitter.enabled) {
+        return 0;
+    }
+    return jitter_.eventMask(trackIndex, valid);
+}
+
 bool Sequencer::setMuted(std::size_t index, bool muted) {
     if (index >= TrackCount) {
         return false;

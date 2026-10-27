@@ -54,11 +54,14 @@ rendered text, or trigger-light timestamps.
 While the audio device is running, the UI-side `Sequencer` does not advance and
 therefore keeps base (unmodulated) rhythm values. `ui::PlayheadMirror` and
 `ui::ModulationMirror` publish the audio thread's per-track position, effective
-rhythm, LFO phase, and waveform value through lock-free atomics, newest value
-wins. `makeMainScreenSnapshot()` accepts an optional live overlay so MAIN, EDIT,
-and MODULATION show the same movement the audio thread is using without reading
-mutable sequencer state across threads. Stopping playback simply disables the
-overlay; the mirrors are never required for correctness.
+rhythm, LFO phase, waveform value, and post-jitter trigger mask through
+lock-free atomics, newest value wins. `makeMainScreenSnapshot()` accepts an
+optional live overlay so MAIN, EDIT, and MODULATION show the same movement the
+audio thread is using without reading mutable sequencer state across threads.
+When no audio overlay exists, the UI-side sequencer supplies its own last
+post-jitter mask; dropping the mask falls back to the plain Euclidean pattern.
+Stopping playback simply disables the overlay; the mirrors are never required
+for correctness.
 
 `TickResult` carries each track's step position at the moment that tick was
 evaluated. `ui::StepTriggerEventQueue` is a fixed-capacity, single-producer /
