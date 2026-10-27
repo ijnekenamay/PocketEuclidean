@@ -1,0 +1,33 @@
+{
+  "version": 4,
+  "name": "pocketeuclidean.zip",
+  "items": [
+    "Pocket Euclidean.sh",
+    "pocketeuclidean"
+  ],
+  "items_opt": [],
+  "attr": {
+    "title": "Pocket Euclidean",
+    "porter": [
+      "ijnekenamay"
+    ],
+    "desc": "A Euclidean rhythm groovebox for handhelds: eight tracks, sampler and synth voices, LFO and jitter modulation, and flat step-bar visuals.",
+    "desc_md": null,
+    "inst": "Ready to run. Put your own mono .wav files in pocketeuclidean/samples (sorted by name, tracks 1-8); built-in sounds are used otherwise.",
+    "inst_md": null,
+    "genres": [
+      "music"
+    ],
+    "image": null,
+    "rtr": true,
+    "exp": false,
+    "runtime": [],
+    "store": [],
+    "availability": "full",
+    "reqs": [],
+    "arch": [
+      "aarch64"
+    ],
+    "min_glibc": ""
+  }
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gameList>
+  <game>
+    <path>./Pocket Euclidean.sh</path>
+    <name>Pocket Euclidean</name>
+    <desc>A Euclidean rhythm groovebox for handhelds: eight tracks, sampler and synth voices, LFO and jitter modulation, and flat step-bar visuals.</desc>
+    <releasedate>20261023T000000</releasedate>
+    <developer>ijnekenamay</developer>
+    <publisher>Open Source</publisher>
+    <genre>Music</genre>
+    <image>./pocketeuclidean/screenshot.png</image>
+  </game>
+</gameList>
