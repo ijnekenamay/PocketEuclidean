@@ -336,13 +336,12 @@ std::string formatNumber(const char* format, double value) {
     return buffer;
 }
 
-std::int32_t fitScale(const std::string& text,
-                      std::int32_t boxWidth,
-                      std::int32_t boxHeight) {
-    const auto length = std::max<std::int32_t>(1, static_cast<std::int32_t>(text.size()));
-    return std::max<std::int32_t>(
-        1, std::min((boxHeight * 3 / 5) / pocket::app::GlyphHeight,
-                    boxWidth / (pocket::app::GlyphAdvance * length)));
+// The seed is a 32-bit value. Eight hex digits keep it exact inside the
+// compact value column without ellipsis or a second line.
+std::string formatSeed(std::uint32_t seed) {
+    char buffer[16];
+    std::snprintf(buffer, sizeof(buffer), "%08X", static_cast<unsigned>(seed));
+    return buffer;
 }
 
 std::int32_t textPixelWidth(const std::string& text, std::int32_t scale) {
@@ -352,6 +351,19 @@ std::int32_t textPixelWidth(const std::string& text, std::int32_t scale) {
     return static_cast<std::int32_t>(text.size()) * pocket::app::GlyphAdvance *
                scale -
            scale;
+}
+
+std::int32_t fitScale(const std::string& text,
+                      std::int32_t boxWidth,
+                      std::int32_t boxHeight) {
+    std::int32_t scale = std::max<std::int32_t>(
+        1, (boxHeight * 3 / 5) / pocket::app::GlyphHeight);
+    // Measure the same trimmed width drawText renders, so a string that ends
+    // one or two pixels short of the glyph advance still keeps its scale.
+    while (scale > 1 && textPixelWidth(text, scale) > boxWidth) {
+        --scale;
+    }
+    return scale;
 }
 
 void drawText(SDL_Renderer* renderer,
@@ -1513,18 +1525,32 @@ void renderRows(SDL_Renderer* renderer,
     const std::int32_t columnWidth =
         (usableWidth - columnGap * static_cast<std::int32_t>(columns - 1)) /
         static_cast<std::int32_t>(columns);
+    // Two-column parameter rows: label 34%, bar 26%, value 36%, with a 2%
+    // gutter on each side of the bar. The single-column layout keeps a wider
+    // label for EDIT names and uses a 44% bar so values stay on one line.
     const std::int32_t labelWidth =
-        columns == 2 ? columnWidth * 32 / 100 : usableWidth * 24 / 100;
-    const std::int32_t barXOffset =
-        labelWidth + columnWidth * 2 / 100;
+        columns == 2 ? columnWidth * 34 / 100 : usableWidth * 24 / 100;
+    const std::int32_t barXOffset = labelWidth + columnWidth * 2 / 100;
     const std::int32_t barWidth =
-        columns == 2 ? columnWidth * 36 / 100 : usableWidth * 54 / 100;
+        columns == 2 ? columnWidth * 26 / 100 : usableWidth * 44 / 100;
     const std::int32_t valueXOffset =
         barXOffset + barWidth + columnWidth * 2 / 100;
     const std::int32_t valueWidth = columnWidth - valueXOffset;
 
-    const std::int32_t rowScale =
+    // One uniform type scale per screen: rows never mix a large label with a
+    // shrunken value. Eight characters on each side is the budget every
+    // parameter row is trimmed to, so if that does not fit at the pitch-derived
+    // scale the whole screen steps down once instead of individual strings.
+    std::int32_t rowScale =
         std::clamp<std::int32_t>(pitch / (pocket::app::GlyphHeight * 2), 1, 3);
+    const auto fitsAtScale = [&](std::int32_t scale) {
+        const std::int32_t needed =
+            pocket::app::GlyphAdvance * 8 * scale - scale;
+        return needed <= labelWidth && needed <= valueWidth;
+    };
+    while (rowScale > 1 && !fitsAtScale(rowScale)) {
+        --rowScale;
+    }
 
     if (columns == 2) {
         // Thin divider clarifies the two parameter groups without a box.
@@ -1805,7 +1831,9 @@ std::string soundSampleLabel(const std::string& path) {
         return "BUILT-IN";
     }
     std::string name = std::filesystem::path(path).filename().string();
-    constexpr std::size_t Limit = 16;
+    // Eight characters is the value-column budget at every supported size, so
+    // long file names are trimmed instead of dropping the font scale.
+    constexpr std::size_t Limit = 8;
     if (name.size() > Limit) {
         name.resize(Limit - 3);
         name += "...";
@@ -1946,7 +1974,7 @@ std::vector<ScreenRow> modulationRows(const pocket::TrackState& track) {
             {"WAVEFORM", waveformName(lfo.waveform), BarMode::Unipolar,
              static_cast<float>(static_cast<int>(lfo.waveform) + 1) / 6.0F,
              true},
-            {"RATE MODE", synced ? "SYNC" : "FREE", BarMode::Discrete, 0.0F,
+            {"LFO SYNC", synced ? "ON" : "OFF", BarMode::Discrete, 0.0F,
              synced},
             {"RATE",
              synced ? divisionName(lfo.division)
@@ -1966,11 +1994,11 @@ std::vector<ScreenRow> modulationRows(const pocket::TrackState& track) {
              true},
             {"JIT RATE", rateIndex < 5 ? rates[rateIndex] : "?",
              BarMode::Unipolar, static_cast<float>(rateIndex + 1) / 5.0F, true},
-            {"MAX SHIFT", std::to_string(jitter.shiftRange), BarMode::Unipolar,
+            {"SHIFT", std::to_string(jitter.shiftRange), BarMode::Unipolar,
              shiftRangeRatio, true},
             {"CST SEED", jitter.useCustomSeed ? "ON" : "OFF",
              BarMode::Discrete, 0.0F, jitter.useCustomSeed},
-            {"SEED", std::to_string(jitter.randomSeed), BarMode::None, 0.0F,
+            {"SEED", formatSeed(jitter.randomSeed), BarMode::None, 0.0F,
              false}};
 }
 
@@ -1999,7 +2027,7 @@ std::vector<ScreenRow> systemRows(const pocket::platform::SystemSettings& settin
              BarMode::Discrete, 0.0F, settings.input.preferGameController},
             {"DISPLAY", theme, BarMode::Unipolar, themeRatio, true},
             {"STORAGE", "DEFAULT", BarMode::None, 0.0F, false},
-            {"ABOUT", "POCKET EUCLIDEAN", BarMode::None, 0.0F, false}};
+            {"ABOUT", "POCKET EUC", BarMode::None, 0.0F, false}};
 }
 
 void renderModal(SDL_Renderer* renderer,
@@ -2016,21 +2044,21 @@ void renderModal(SDL_Renderer* renderer,
     fillRect(renderer, 0, 0, width, height);
     if (state.modal == Modal::Help) {
         renderRows(renderer, palette, "HELP", "ESC:CLOSE",
-                   {{"TAB / L1 R1", "SWITCH SCREEN"},
-                    {"Q / E / L2 R2", "PREV / NEXT TRACK"},
-                    {"ARROWS / DPAD", "MOVE / ADJUST VALUE"},
-                    {"SHIFT / X", "FINE ADJUST"},
-                    {"SPACE / START", "PLAY / STOP"},
-                    {"M / Y", "MUTE TRACK"},
-                    {"P / SELECT", "PROJECT MENU"},
-                    {"ESC / B", "BACK"}},
+                   {{"TAB L1/R1", "SWITCH SCREEN"},
+                    {"Q/E L2/R2", "PREV / NEXT TRACK"},
+                    {"ARROWS/DPAD", "MOVE / ADJUST VALUE"},
+                    {"SHIFT/X", "FINE ADJUST"},
+                    {"SPACE/START", "PLAY / STOP"},
+                    {"M/Y", "MUTE TRACK"},
+                    {"P/SELECT", "PROJECT MENU"},
+                    {"ESC/B", "BACK"}},
                    99, width, height);
     } else if (state.modal == Modal::ProjectMenu) {
         renderRows(renderer, palette, "PROJECT", "ENTER:SELECT  ESC:BACK",
-                   {{"NEW PROJECT", ""},
-                    {"LOAD PROJECT", ""},
-                    {"SAVE PROJECT", ""},
-                    {"SAVE PROJECT AS", ""},
+                   {{"NEW", ""},
+                    {"LOAD", ""},
+                    {"SAVE", ""},
+                    {"SAVE AS", ""},
                     {"RETURN", ""}},
                    static_cast<std::size_t>(state.projectMenuItem), width,
                    height);

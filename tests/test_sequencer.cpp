@@ -3,6 +3,7 @@
 #include "audio/BasicVaVoice.h"
 #include "audio/Mixer.h"
 #include "audio/OnePoleLowPass.h"
+#include "audio/PlaitsModels.h"
 #include "audio/ReverbEffect.h"
 #include "audio/SampleCache.h"
 #include "audio/SamplerMixerRenderer.h"
@@ -1111,6 +1112,12 @@ void testSelectableSynthVoice() {
     parameters.engine = SynthEngineType::Plaits;
     expect(!voice.setParameters(parameters),
            "Plaits voice rejects an out-of-range model index");
+
+    for (std::size_t model = 0; model < PlaitsModelCount; ++model) {
+        const std::string name = plaitsModelName(model);
+        expect(!name.empty() && name.size() <= 4,
+               "Plaits model names fit the SOUND value column without shrinking");
+    }
 }
 
 void testSynthEngineParameterRouting() {

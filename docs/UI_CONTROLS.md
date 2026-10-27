@@ -98,13 +98,15 @@ persist raw SDL or joystick button numbers in the shared profile.
   rendering.
   Filter Enable and Synth Engine are discrete: Left/Right and Confirm toggle
   them between OFF/ON and BASIC-VA/PLAITS. Plaits Model is an independent
-  index field (1-based number plus a short name, e.g. `1 VA`, `8 HIHAT`)
+  index field (1-based number plus a four-letter name, e.g. `1 VA`, `8 HHAT`)
   that wraps through all sixteen engines; the model applies only while the
   engine is PLAITS, and Morph remains a continuous parameter *inside* the
   selected model. Both engines run through the same per-track AD VCA and
   filter.
-  The SAMPLE row shows the track's WAV file name or `BUILT-IN`. Confirm opens
-  the SELECT WAV browser; Up/Down moves the cursor, Confirm opens a directory
+  The SAMPLE row shows the track's WAV file name or `BUILT-IN`. Long names are
+  shortened to eight characters with a trailing `...` so the row keeps the same
+  font scale as every other parameter. Confirm opens the SELECT WAV browser;
+  Up/Down moves the cursor, Confirm opens a directory
   (with a `..` entry for the parent) or assigns the highlighted `.wav` to the
   selected track, and Back cancels. The sample is decoded on the UI thread and
   handed to the audio thread through the sampler's bounded swap queue, so it
@@ -132,12 +134,13 @@ persist raw SDL or joystick button numbers in the shared profile.
   sequencer triggers or modulation.
 - MODULATION: Up/Down selects the first LFO's fields followed by the selected
   track's jitter fields; Left/Right changes values. LFO fields include enable,
-  waveform, rate mode, rate/division, destination, and amount. The destination
-  is exactly one of Eleng, Efill, or Eoffs. Jitter enable and intensity follow
-  immediately after the LFO fields; mode, synchronized rate, shift range, and
-  optional deterministic seed controls are also available. Enter toggles the
-  focused enable option. The data model supports four LFOs per track, while
-  the initial UI exposes only the first.
+  waveform, sync (`LFO SYNC`), rate/division, destination, and amount. The
+  destination is exactly one of Eleng, Efill, or Eoffs. Jitter enable and
+  intensity follow immediately after the LFO fields; mode, synchronized rate,
+  shift range (`SHIFT`), and optional deterministic seed controls are also
+  available. Enter toggles the focused enable option. The seed value is shown as
+  eight hex digits so all 32 bits stay visible on one line. The data model
+  supports four LFOs per track, while the initial UI exposes only the first.
 - SYSTEM: Up/Down navigates Clock/Transport, MIDI, Audio, Input/Controls,
   Display, Project/Storage, and About/Diagnostics categories. The versioned
   settings model exists separately from project data; rendering and persistence
@@ -207,8 +210,12 @@ Events fire 300 ms apart starting at 400 ms. Examples:
   and PLAITS both sound and that the MODEL field selects each of the sixteen
   Plaits engines independently of Morph.
 - [ ] On SOUND, open SAMPLE, browse directories, assign a WAV to a track, and
-  verify the row shows the file name. Save the project, reload it, and confirm
-  the same sample is restored; verify a missing path falls back to BUILT-IN.
+  verify the row shows the shortened file name. Save the project, reload it, and
+  confirm the same sample is restored; verify a missing path falls back to
+  BUILT-IN and that a long name keeps the row's font scale.
+- [ ] On every parameter screen, verify all rows share one glyph scale and that
+  the widest label/value (`WAVEFORM`, `STRENGTH`, `TRIANGLE`, `PAD FIRST`) does
+  not shrink on its own at 1024×768 and 640×480.
 - [ ] Replace a track's sample while playback is running and verify no dropout,
   callback failure, or use-after-free of the previous buffer.
 - [ ] Lose window focus while holding a D-pad direction; verify repeat stops and

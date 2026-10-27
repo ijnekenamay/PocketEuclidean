@@ -55,6 +55,13 @@ the rhythm. Avoid excessive font sizes, bold weights, decorative typefaces, and
 unnecessary uppercase headings. Establish hierarchy with alignment, spacing, and
 consistent positioning rather than boxes and dividers.
 
+One screen uses one type scale. Parameter rows must not mix a large label with a
+shrunken value: if a label or value does not fit, shorten or abbreviate the text
+and narrow the bar before reducing the glyph scale. Two-column parameter rows
+budget eight characters each for the label and the value, and longer file names
+carry a trailing `...`; single-column screens may use their extra width. Bar
+length is secondary to legibility.
+
 ### 2.4 Space Is an Active Element
 
 Empty space is not wasted space. Do not fill every pixel with labels, controls,
