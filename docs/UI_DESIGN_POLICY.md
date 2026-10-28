@@ -274,7 +274,21 @@ Keep BPM, playback state, and selected-track information small and unobtrusive,
 but name the selected track explicitly with a `TRKn` badge rather than relying
 only on an unlabeled pip. MAIN uses no bottom hint band: its lanes extend to the
 lower margin so the rhythm stays the dominant graphic.
+The transport state is carried by one oversized geometric mark beside the BPM
+readout: a filled `▶` while the clock runs and two solid bars while it is
+stopped. The mark is larger than the BPM text so play/stop reads at a glance
+from a distance; the word `PLAY`/`STOP` is never drawn, and the master tick
+survives as a small `TICK n` diagnostic line under the BPM.
 The groove should be understandable at a glance.
+
+### Transport mark
+
+Every screen repeats the same mark at the right edge of its header, paired with
+the current BPM (`120 BPM ▶`). It uses accent while playing and primary while
+stopped, is sized from the header height rather than the text scale, and is
+built only from axis-aligned rectangles so it stays crisp at 640×480 and
+1024×768. Because the glyph is the state, no screen may add a textual
+`PLAY`/`STOP` label next to it.
 
 ### EDIT
 

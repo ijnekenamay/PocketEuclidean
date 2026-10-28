@@ -80,6 +80,10 @@ persist raw SDL or joystick button numbers in the shared profile.
   The selected track is named in the header (`TRK1` … `TRK8`) next to the
   Euclidean summary. MAIN does not draw a bottom footer: its eight lanes use
   the full viewport height so the rhythm remains the dominant graphic.
+  A large geometric play/pause mark sits immediately right of the `BPM`
+  readout (accent while playing, primary while stopped); the small `TICK`
+  line under it keeps the master tick count for diagnostics. Every parameter
+  screen shows the same mark at the right edge of its header.
   START and Space are a toggle, not press-and-hold: the first press resets
   every track and the master clock to step zero and starts playback; the next
   press stops the clock. Releasing the key or button does nothing, and OS
@@ -221,12 +225,13 @@ comma-separated list of `key[:action]`, where key is `up`, `down`, `left`,
 `p`, `f1`, `shift`, or `ctrl`, and action is `tap` (default), `down`, `up`, or
 `repeat`. Events fire 300 ms apart starting at 400 ms. Examples:
 
-- `--inject-keys space:tap` → header shows `PLAY` (one press starts).
-- `--inject-keys space:down,space:up` → header still shows `PLAY` (release does
-  nothing; this is the press-and-hold regression).
-- `--inject-keys space:tap,space:tap` → header shows `STOP` with a non-zero
-  master tick, proving the first press ran and the second stopped.
-- `--inject-keys space:down,space:repeat` → header still shows `PLAY` (OS
+- `--inject-keys space:tap` → the header shows the filled `▶` mark (one press
+  starts).
+- `--inject-keys space:down,space:up` → the header still shows `▶` (release
+  does nothing; this is the press-and-hold regression).
+- `--inject-keys space:tap,space:tap` → the header shows the `❚❚` mark with a
+  non-zero `TICK` count, proving the first press ran and the second stopped.
+- `--inject-keys space:down,space:repeat` → the header still shows `▶` (OS
   key-repeat cannot toggle transport twice).
 - `--inject-keys ctrl:down,right:tap,ctrl:up` → on SOUND the selection stays on
   ATTACK while its value steps up (tracker-style edit), instead of moving to the

@@ -42,6 +42,16 @@ The current Brick Pro ABI, compiler, sysroot, SDL2 runtime, controller mapping,
 audio behavior, storage, and PortMaster/NextUI compatibility all require target
 validation.
 
+## Releases
+
+The current pre-release line is **v0.1.0** (`0.1`). It is the first packaged
+snapshot that includes the Turing LOCK / DICE phrase controls, the padlock and
+die badges in MIXER, and the oversized `▶` / `❚❚` transport mark beside the BPM
+readout. The GitHub release attaches `PocketEuclidean-PortMaster-aarch64.zip`,
+the PortMaster / NextUI AArch64 package; project files are written as v11 and
+v10 files load with `LOCK=false`. Nothing in this line is verified on Brick Pro
+hardware yet — see the status section above before treating it as stable.
+
 ## Getting started
 
 Use a desktop C++17 compiler and CMake. From a Visual Studio 2022 Developer

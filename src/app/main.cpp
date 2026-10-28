@@ -674,6 +674,41 @@ void drawDiceGlyph(SDL_Renderer* renderer,
     }
 }
 
+// Large play/pause mark for the header. The triangle is built from one rect
+// per row so it stays crisp without diagonal primitives.
+void drawTransportGlyph(SDL_Renderer* renderer,
+                        const pocket::ui::RgbaColor& color,
+                        bool playing,
+                        std::int32_t x,
+                        std::int32_t y,
+                        std::int32_t width,
+                        std::int32_t height) {
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    setColor(renderer, color);
+    if (playing) {
+        const std::int32_t span = std::max<std::int32_t>(1, height - 1);
+        for (std::int32_t row = 0; row < height; ++row) {
+            const std::int32_t distance = std::abs(2 * row - span);
+            const std::int32_t rowWidth = std::max<std::int32_t>(
+                1, width * (span - distance) / span);
+            fillRect(renderer, x, y + row, rowWidth, 1);
+        }
+    } else {
+        const std::int32_t barW = std::max<std::int32_t>(2, width * 2 / 5);
+        const std::int32_t gap = std::max<std::int32_t>(2, width / 5);
+        fillRect(renderer, x, y, barW, height);
+        fillRect(renderer, x + barW + gap, y, barW, height);
+    }
+}
+
+struct HeaderTransport {
+    bool visible = false;
+    bool playing = false;
+    std::string label;
+};
+
 void drawHeaderBar(SDL_Renderer* renderer,
                    const pocket::ui::ThemePalette& palette,
                    const std::string& title,
@@ -684,7 +719,8 @@ void drawHeaderBar(SDL_Renderer* renderer,
                    std::int32_t headerHeight,
                    std::optional<pocket::InstrumentType> headerInstrument = std::nullopt,
                    bool headerMuted = false,
-                   const std::string& badge = {}) {
+                   const std::string& badge = {},
+                   const HeaderTransport& transport = {}) {
     const std::int32_t titleScale =
         std::clamp(headerHeight / (pocket::app::GlyphHeight * 2), 2, 4);
     const std::int32_t rightScale = std::max(1, titleScale - 1);
@@ -712,28 +748,49 @@ void drawHeaderBar(SDL_Renderer* renderer,
         drawText(renderer, badge, badgeX, y, badgeW, headerHeight,
                  palette.accent, titleScale);
     }
-    if (!contextRight.empty()) {
-        drawTextRight(renderer, contextRight, margin + usableWidth * 2 / 5, y,
-                      usableWidth * 3 / 5, headerHeight, palette.subdued,
-                      rightScale);
+    if (!contextRight.empty() || transport.visible) {
+        std::int32_t rightEdge = margin + usableWidth;
+        if (transport.visible) {
+            // Transport cluster: tempo text plus an oversized play/pause mark,
+            // pinned to the right edge so it never moves between screens.
+            const std::int32_t iconHeight = std::clamp<std::int32_t>(
+                headerHeight * 60 / 100, 16, 36);
+            const std::int32_t iconWidth =
+                std::max<std::int32_t>(12, iconHeight * 3 / 4);
+            const std::int32_t clusterGap =
+                std::max<std::int32_t>(8, headerHeight / 6);
+            const std::int32_t tempoWidth =
+                textPixelWidth(transport.label, rightScale);
+            const std::int32_t clusterX =
+                rightEdge - (tempoWidth + clusterGap + iconWidth);
+            drawText(renderer, transport.label, clusterX, y, tempoWidth,
+                     headerHeight, palette.subdued, rightScale);
+            drawTransportGlyph(
+                renderer,
+                transport.playing ? palette.accent : palette.primary,
+                transport.playing, clusterX + tempoWidth + clusterGap,
+                y + (headerHeight - iconHeight) / 2, iconWidth, iconHeight);
+            rightEdge = clusterX - clusterGap * 3;
+        }
+        if (!contextRight.empty()) {
+            const std::int32_t contextLeft = margin + usableWidth * 2 / 5;
+            drawTextRight(renderer, contextRight, contextLeft, y,
+                          std::max<std::int32_t>(0, rightEdge - contextLeft),
+                          headerHeight, palette.subdued, rightScale);
+        }
     }
     setColor(renderer, blendColor(palette.background, palette.subdued, 0.5F));
     fillRect(renderer, margin, y + headerHeight - 2, usableWidth, 2);
 }
 
-std::string transportStatusFor(const pocket::Sequencer& sequencer,
-                               const pocket::ui::UiController& ui) {
-    std::string status =
-        formatNumber("%.0f BPM  ", sequencer.tempo()) +
-        (sequencer.isPlaying() ? "PLAY  " : "STOP  ");
+std::string tempoStatusFor(const pocket::Sequencer& sequencer,
+                           const pocket::ui::UiController& ui) {
+    std::string status = formatNumber("%.0f BPM", sequencer.tempo());
     if (ui.state().fineAdjust) {
-        status += "FINE  ";
+        status += "  FINE";
     }
     if (ui.state().modified) {
-        status += "*";
-    }
-    while (!status.empty() && status.back() == ' ') {
-        status.pop_back();
+        status += "  *";
     }
     return status;
 }
@@ -902,18 +959,37 @@ void renderMainScreen(SDL_Renderer* renderer,
         const auto& command = drawList.commands[index];
         if (command.type == pocket::ui::MainDrawCommandType::Text) {
             if (command.textRole == pocket::ui::MainTextRole::Tempo) {
-                drawText(renderer, mainTextFor(command), command.x,
+                const auto tempoText = mainTextFor(command);
+                drawText(renderer, tempoText, command.x,
                          frame.tempoY + 2, 180, headerAreaH / 2,
                          frame.palette.primary, headerScale);
+                // Oversized play/pause mark right beside the BPM readout, so
+                // the transport state reads before any label.
+                const std::int32_t glyphH =
+                    pocket::app::GlyphHeight * headerScale;
+                const std::int32_t iconH =
+                    std::clamp<std::int32_t>(glyphH * 3 / 2, 14, 34);
+                const std::int32_t iconW =
+                    std::max<std::int32_t>(12, iconH * 3 / 4);
+                const std::int32_t gap =
+                    std::max<std::int32_t>(14, glyphH * 3 / 4);
+                const std::int32_t bpmTop =
+                    frame.tempoY + 2 + (headerAreaH / 2 - glyphH) / 2;
+                drawTransportGlyph(
+                    renderer,
+                    frame.playing ? frame.palette.accent
+                                  : frame.palette.primary,
+                    frame.playing,
+                    command.x + textPixelWidth(tempoText, headerScale) + gap,
+                    bpmTop + (glyphH - iconH) / 2, iconW, iconH);
             } else if (command.textRole == pocket::ui::MainTextRole::Transport) {
-                const auto transportColor =
-                    command.playing ? frame.palette.accent : frame.palette.subdued;
-                const std::string trText =
-                    std::string(command.playing ? "> PLAY  " : "|| STOP  ") +
-                    std::to_string(command.masterTickPosition);
-                drawText(renderer, trText, command.x,
+                // The glyph carries the state; keep the master tick as a small
+                // diagnostic line under the BPM.
+                const std::string tickText =
+                    "TICK " + std::to_string(command.masterTickPosition);
+                drawText(renderer, tickText, command.x,
                          frame.tempoY + headerAreaH / 2, 200,
-                         headerAreaH / 2 - 4, transportColor, 1);
+                         headerAreaH / 2 - 4, frame.palette.subdued, 1);
             } else {
                 // Pure abstract geometric instrument icon (no T1..T8 text!)
                 drawInstrumentGlyph(renderer, frame.palette, command.instrument,
@@ -1736,14 +1812,16 @@ void renderRows(SDL_Renderer* renderer,
                 std::size_t columnCount = 1,
                 std::size_t firstColumnRows = 0,
                 const std::string& trackBadge = {},
-                const std::string& footerHint = {}) {
+                const std::string& footerHint = {},
+                const HeaderTransport& transport = {}) {
     const std::int32_t margin = std::max<std::int32_t>(16, width / 24);
     const std::int32_t headerHeight = std::max<std::int32_t>(36, height / 13);
     const std::int32_t footerReserve = std::max<std::int32_t>(32, height / 16);
     const std::int32_t topY = std::max<std::int32_t>(10, height / 42);
 
     drawHeaderBar(renderer, palette, title, headerRight, margin, topY, width,
-                  headerHeight, headerInstrument, headerMuted, trackBadge);
+                  headerHeight, headerInstrument, headerMuted, trackBadge,
+                  transport);
 
     std::int32_t contentTop =
         topY + headerHeight + std::max<std::int32_t>(6, height / 72) +
@@ -1914,9 +1992,14 @@ void renderMixerScreen(SDL_Renderer* renderer,
     const std::string trackBadge = "TRK" + std::to_string(selected + 1);
     const std::string rightContext =
         std::string(fieldNames[std::min(fieldIndex, fieldCount - 1)]) + " " +
-        focusValue + "  ENTER:NEXT  " + transportStatusFor(sequencer, ui);
+        focusValue;
+    HeaderTransport transport;
+    transport.visible = true;
+    transport.playing = sequencer.isPlaying();
+    transport.label = tempoStatusFor(sequencer, ui);
     drawHeaderBar(renderer, palette, "MIXER CONSOLE", rightContext, margin, topY,
-                  width, headerHeight, std::nullopt, false, trackBadge);
+                  width, headerHeight, std::nullopt, false, trackBadge,
+                  transport);
 
     const std::int32_t contentTop =
         topY + headerHeight + std::max<std::int32_t>(8, height / 64);
@@ -3425,8 +3508,10 @@ int runSdlApp(const AppOptions& options) {
             const auto selectedTrack = ui.effectiveTrackState(trackIndex);
             const std::string trackBadge =
                 "TRK" + std::to_string(trackIndex + 1);
-            const std::string transportStatus =
-                transportStatusFor(sequencer, ui);
+            HeaderTransport transport;
+            transport.visible = true;
+            transport.playing = sequencer.isPlaying();
+            transport.label = tempoStatusFor(sequencer, ui);
 
             const std::int32_t margin = std::max<std::int32_t>(16, width / 24);
             const std::int32_t headerHeight = std::max<std::int32_t>(36, height / 13);
@@ -3444,12 +3529,13 @@ int runSdlApp(const AppOptions& options) {
             case pocket::ui::Screen::Edit: {
                 const std::int32_t explorerH = std::max<std::int32_t>(140, height * 28 / 100);
                 renderRows(renderer, *palette, "EDIT",
-                           transportStatus, editRows(selectedTrack),
+                           "", editRows(selectedTrack),
                            static_cast<std::size_t>(ui.state().editField),
                            width, height, explorerH + 12,
                            selectedTrack.instrument, selectedTrack.muted, 1, 0,
                            trackBadge,
-                           "UP/DN:FIELD  LEFT/RIGHT:VALUE  Q/E:TRACK  TAB:SCREEN  ESC:BACK");
+                           "UP/DN:FIELD  LEFT/RIGHT:VALUE  Q/E:TRACK  TAB:SCREEN  ESC:BACK",
+                           transport);
                 drawEditEuclideanExplorer(renderer, *palette, sequencer, ui,
                                           audioRunning ? &engine : nullptr,
                                           margin, bannerTop, bannerW,
@@ -3459,14 +3545,15 @@ int runSdlApp(const AppOptions& options) {
             case pocket::ui::Screen::Sound: {
                 const std::int32_t vizH = std::max<std::int32_t>(88, height * 15 / 100);
                 renderRows(renderer, *palette, "SOUND",
-                           transportStatus,
+                           "",
                            soundRows(selectedTrack, ui.effects(),
                                      engine.samplePath(trackIndex)),
                            static_cast<std::size_t>(ui.state().soundField),
                            width, height, vizH + 10,
                            selectedTrack.instrument, selectedTrack.muted, 2, 7,
                            trackBadge,
-                           "UP/DN:ROW  LEFT/RIGHT:COL  A/CTRL+LEFT/RIGHT:VALUE  Q/E:TRACK  TAB:SCREEN");
+                           "UP/DN:ROW  LEFT/RIGHT:COL  A/CTRL+LEFT/RIGHT:VALUE  Q/E:TRACK  TAB:SCREEN",
+                           transport);
                 drawSoundVisualizer(renderer, *palette, selectedTrack,
                                     ui.effects(), sequencer.isPlaying(),
                                     SDL_GetTicks64(), margin, bannerTop, bannerW,
@@ -3481,12 +3568,13 @@ int runSdlApp(const AppOptions& options) {
             case pocket::ui::Screen::Modulation: {
                 const std::int32_t vizH = std::max<std::int32_t>(84, height * 14 / 100);
                 renderRows(renderer, *palette, "MODULATION",
-                           transportStatus, modulationRows(selectedTrack),
+                           "", modulationRows(selectedTrack),
                            static_cast<std::size_t>(ui.state().modulationField),
                            width, height, vizH + 10,
                            selectedTrack.instrument, selectedTrack.muted, 2, 6,
                            trackBadge,
-                           "UP/DN:ROW  LEFT/RIGHT:COL  A/CTRL+LEFT/RIGHT:VALUE  Q/E:TRACK  TAB:SCREEN");
+                           "UP/DN:ROW  LEFT/RIGHT:COL  A/CTRL+LEFT/RIGHT:VALUE  Q/E:TRACK  TAB:SCREEN",
+                           transport);
                 pocket::ui::LiveModulationState live;
                 const bool modPlaying = sequencer.isPlaying();
                 if (modPlaying) {
@@ -3511,12 +3599,13 @@ int runSdlApp(const AppOptions& options) {
                 const std::int32_t vizH =
                     std::max<std::int32_t>(84, height * 14 / 100);
                 renderRows(
-                    renderer, *palette, "TURING", transportStatus,
+                    renderer, *palette, "TURING", "",
                     turingRows(selectedTrack),
                     static_cast<std::size_t>(ui.state().turingField), width,
                     height, vizH + 10, selectedTrack.instrument,
                     selectedTrack.muted, 2, 6, trackBadge,
-                    "UP/DN:ROW  LEFT/RIGHT:COL  A:TOGGLE/DICE  Q/E:TRACK");
+                    "UP/DN:ROW  LEFT/RIGHT:COL  A:TOGGLE/DICE  Q/E:TRACK",
+                    transport);
                 pocket::ui::LiveTuringState live;
                 const bool turingPlaying = sequencer.isPlaying();
                 if (turingPlaying && audioRunning) {
@@ -3529,11 +3618,12 @@ int runSdlApp(const AppOptions& options) {
                 break;
             }
             case pocket::ui::Screen::System:
-                renderRows(renderer, *palette, "SYSTEM", transportStatus,
+                renderRows(renderer, *palette, "SYSTEM", "",
                            systemRows(ui.systemSettings(), midiOpen),
                            static_cast<std::size_t>(ui.state().systemCategory),
                            width, height, 0, std::nullopt, false, 1, 0, {},
-                           "UP/DN:CATEGORY  LEFT/RIGHT:CHANGE  TAB:SCREEN  ESC:BACK");
+                           "UP/DN:CATEGORY  LEFT/RIGHT:CHANGE  TAB:SCREEN  ESC:BACK",
+                           transport);
                 break;
             }
             renderModal(renderer, *palette, ui, width, height);
