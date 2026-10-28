@@ -31,9 +31,11 @@ bool layoutMainScreen(const MainScreenSnapshot& snapshot,
     const auto labelWidth = std::max<std::int32_t>(24, width / 26);
     const auto labelGap = std::max<std::int32_t>(8, width / 80);
     const auto headerHeight = std::max<std::int32_t>(44, height / 9);
-    const auto footerHeight = std::max<std::int32_t>(20, height / 24);
+    // MAIN uses the full lower viewport for its eight lanes. Screen-change
+    // hints live on the parameter screens; MAIN keeps only the transport
+    // summary in its header so the rhythm stays the dominant graphic.
     const auto rowsTop = marginY + headerHeight;
-    const auto rowsBottom = height - marginY - footerHeight;
+    const auto rowsBottom = height - marginY;
     const auto rowPitch = (rowsBottom - rowsTop) /
                           static_cast<std::int32_t>(TrackCount);
     const auto patternX = marginX + labelWidth + labelGap;

@@ -38,6 +38,11 @@ void testKeyboardAndControllerMappings() {
            "Shift+Tab switches to previous screen");
     expect(InputMapping::keyboard(KeyboardKey::Right, true)->fine,
            "Shift+arrow enables fine adjustment");
+    expect(!InputMapping::keyboard(KeyboardKey::Right)->edit,
+           "plain arrow does not carry the value-edit modifier");
+    expect(InputMapping::keyboard(KeyboardKey::Right, false, false, true, true)
+               ->edit,
+           "Ctrl+arrow carries the tracker-style value-edit modifier");
     expect(!InputMapping::keyboard(KeyboardKey::Shift, false, false, false)->fine,
            "Shift release clears fine-adjust modifier");
     expect(!InputMapping::keyboard(KeyboardKey::Space, false, true),
@@ -736,10 +741,10 @@ void testSynthEngineSelection() {
                SynthEngineType::BasicVa,
            "engine field starts on BASIC-VA");
 
-    ui.dispatch({Action::NavRight});
+    ui.dispatch({Action::NavRight, false, true});
     expect(ui.effectiveTrackState(0).synth.engineType ==
                SynthEngineType::Plaits,
-           "right selects the Plaits engine");
+           "right with the edit modifier selects the Plaits engine");
     audio::AudioParameterCommand command;
     expect(queue.pop(command) &&
                command.parameter ==
@@ -755,9 +760,9 @@ void testSynthEngineSelection() {
     ui.dispatch({Action::NavDown});
     expect(ui.state().soundField == SoundField::Model,
            "SOUND navigation reaches the Plaits model field");
-    ui.dispatch({Action::NavRight});
+    ui.dispatch({Action::NavRight, false, true});
     expect(ui.effectiveTrackState(0).synth.model == 1,
-           "right selects the next Plaits model");
+           "right with the edit modifier selects the next Plaits model");
     audio::AudioParameterCommand modelCommand;
     while (queue.pop(modelCommand) &&
            modelCommand.parameter != audio::AudioParameter::TrackSynthModel) {
@@ -765,8 +770,8 @@ void testSynthEngineSelection() {
     expect(modelCommand.parameter == audio::AudioParameter::TrackSynthModel &&
                modelCommand.track == 0 && modelCommand.value == 1.0F,
            "model change is published through the audio parameter queue");
-    ui.dispatch({Action::NavLeft});
-    ui.dispatch({Action::NavLeft});
+    ui.dispatch({Action::NavLeft, false, true});
+    ui.dispatch({Action::NavLeft, false, true});
     expect(ui.effectiveTrackState(0).synth.model == 15,
            "model field wraps from zero to the last model");
 }
@@ -839,7 +844,7 @@ void testUiAudioParameterQueue() {
     ui.dispatch({Action::ScreenNext});
     const float initialAttack =
         ui.state().audioTrackSettings[0].envelope.attackSeconds;
-    ui.dispatch({Action::NavRight});
+    ui.dispatch({Action::NavRight, false, true});
     audio::AudioParameterCommand command;
     expect(queue.pop(command) &&
                command.parameter == audio::AudioParameter::TrackAttack &&
@@ -857,7 +862,7 @@ void testUiAudioParameterQueue() {
     }
     const float oldDecay = ui.state().audioTrackSettings[0].envelope.decaySeconds;
     ui.dispatch({Action::NavDown});
-    ui.dispatch({Action::NavRight});
+    ui.dispatch({Action::NavRight, false, true});
     expect(ui.state().audioParameterRejected &&
                ui.state().audioTrackSettings[0].envelope.decaySeconds ==
                    oldDecay,
@@ -897,22 +902,22 @@ void testScreensAndEditRanges() {
     expect(ui.state().screen == Screen::Edit, "main advances to edit");
     ui.dispatch({Action::ScreenNext});
     expect(ui.state().screen == Screen::Sound, "edit advances to sound");
-    ui.dispatch({Action::NavRight});
+    ui.dispatch({Action::NavRight, false, true});
     expect(sequencer.track(0).envelope.attackSeconds > 0.005F &&
                ui.state().modified,
            "sound screen adjusts the selected track attack envelope");
     ui.dispatch({Action::NavDown});
-    ui.dispatch({Action::NavRight, true});
+    ui.dispatch({Action::NavRight, true, true});
     expect(sequencer.track(0).envelope.decaySeconds > 0.45F &&
                ui.state().soundField == SoundField::Decay,
            "sound screen fine-adjusts the selected track decay envelope");
     ui.dispatch({Action::NavDown});
-    ui.dispatch({Action::NavRight});
+    ui.dispatch({Action::NavRight, false, true});
     expect(sequencer.track(0).filter.enabled &&
                ui.state().soundField == SoundField::FilterEnabled,
            "sound screen enables the selected track low-pass filter");
     ui.dispatch({Action::NavDown});
-    ui.dispatch({Action::NavRight, true});
+    ui.dispatch({Action::NavRight, true, true});
     expect(sequencer.track(0).filter.cutoffHz == 12100.0F &&
                ui.state().soundField == SoundField::FilterCutoff,
            "sound screen fine-adjusts the selected track cutoff");
@@ -1010,13 +1015,13 @@ void testScreensAndEditRanges() {
     expect(modulationUi.state().screen == Screen::Modulation,
            "modulation screen is reachable in the primary screen sequence");
     modulationUi.dispatch({Action::NavDown});
-    modulationUi.dispatch({Action::NavRight});
+    modulationUi.dispatch({Action::NavRight, false, true});
     expect(modulationSequencer.track(0).lfos[0].waveform == LfoWaveform::Triangle,
            "modulation screen can change the selected track LFO waveform");
     modulationUi.dispatch({Action::NavDown});
     modulationUi.dispatch({Action::NavDown});
     modulationUi.dispatch({Action::NavDown});
-    modulationUi.dispatch({Action::NavRight});
+    modulationUi.dispatch({Action::NavRight, false, true});
     expect(modulationSequencer.track(0).lfos[0].destination ==
                ModulationDestination::Fill,
            "modulation screen selects one parameter destination for its LFO");
@@ -1026,7 +1031,7 @@ void testScreensAndEditRanges() {
     expect(modulationSequencer.track(0).jitter.enabled,
            "modulation screen exposes an accessible per-track jitter enable");
     modulationUi.dispatch({Action::NavDown});
-    modulationUi.dispatch({Action::NavRight});
+    modulationUi.dispatch({Action::NavRight, false, true});
     expect(modulationSequencer.track(0).jitter.intensity == 5,
            "modulation screen exposes per-track jitter intensity");
     modulationUi.dispatch({Action::ScreenNext});
@@ -1062,6 +1067,83 @@ void testScreensAndEditRanges() {
     expect(handheldUi.state().systemCategory ==
                platform::SettingsCategory::InputAndControls,
            "SYSTEM navigation skips categories unsupported by the current platform");
+}
+
+void testParameterColumnNavigation() {
+    using namespace pocket;
+    using namespace pocket::ui;
+
+    Sequencer sequencer;
+    UiController ui(sequencer);
+    ui.dispatch({Action::ScreenNext}); // Edit
+    ui.dispatch({Action::ScreenNext}); // Sound
+    expect(ui.state().soundField == SoundField::Attack,
+           "SOUND starts on the first left-column field");
+    const float attackBefore =
+        ui.state().audioTrackSettings[0].envelope.attackSeconds;
+
+    ui.dispatch({Action::NavRight});
+    expect(ui.state().soundField == SoundField::Morph &&
+               ui.state().audioTrackSettings[0].envelope.attackSeconds ==
+                   attackBefore,
+           "plain right jumps to the same row of the right column without editing");
+    ui.dispatch({Action::NavLeft});
+    expect(ui.state().soundField == SoundField::Attack,
+           "plain left returns to the same row of the left column");
+
+    ui.dispatch({Action::NavRight});
+    for (int i = 0; i < 6; ++i) {
+        ui.dispatch({Action::NavDown});
+    }
+    expect(ui.state().soundField == SoundField::DelayMix,
+           "SOUND right-column navigation reaches the last field");
+    ui.dispatch({Action::NavRight});
+    expect(ui.state().soundField == SoundField::DelayMix,
+           "right at the rightmost column does not wrap or edit");
+
+    ui.dispatch({Action::NavLeft});
+    ui.dispatch({Action::NavLeft});
+    expect(ui.state().soundField == SoundField::Pitch,
+           "plain left returns to the same row of the left column and stops");
+    for (int i = 0; i < 6; ++i) {
+        ui.dispatch({Action::NavUp});
+    }
+    expect(ui.state().soundField == SoundField::Attack,
+           "vertical navigation returns to the first left-column field");
+    ui.dispatch({Action::NavRight, false, true});
+    expect(ui.state().soundField == SoundField::Attack &&
+               ui.state().audioTrackSettings[0].envelope.attackSeconds >
+                   attackBefore,
+           "edit+right changes the value and keeps the focused field");
+    const float attackAfterCoarse =
+        ui.state().audioTrackSettings[0].envelope.attackSeconds;
+    ui.dispatch({Action::NavRight, true, true});
+    expect(ui.state().soundField == SoundField::Attack &&
+               ui.state().audioTrackSettings[0].envelope.attackSeconds >
+                   attackAfterCoarse &&
+               ui.state().audioTrackSettings[0].envelope.attackSeconds -
+                       attackAfterCoarse <
+                   0.01F,
+           "shift+edit+right applies a fine value step");
+
+    Sequencer modSequencer;
+    UiController mod(modSequencer);
+    for (int i = 0; i < 4; ++i) {
+        mod.dispatch({Action::ScreenNext});
+    }
+    expect(mod.state().screen == Screen::Modulation,
+           "MODULATION is reachable for column navigation");
+    for (int i = 0; i < 5; ++i) {
+        mod.dispatch({Action::NavDown});
+    }
+    expect(mod.state().modulationField == ModulationField::Amount,
+           "MODULATION column navigation starts from Amount");
+    mod.dispatch({Action::NavRight});
+    expect(mod.state().modulationField == ModulationField::JitterCustomSeed,
+           "plain right moves from the LFO column to the jitter column");
+    mod.dispatch({Action::NavLeft});
+    expect(mod.state().modulationField == ModulationField::Amount,
+           "plain left returns from jitter to the LFO column");
 }
 
 void testModalsAndFineMode() {
@@ -1249,14 +1331,14 @@ void testEffectiveTrackStateAndTempoControls() {
     }
     expect(synthDelayUi.state().soundField == SoundField::Pitch,
            "SOUND navigation reaches Synth Pitch field");
-    synthDelayUi.dispatch({Action::NavRight});
+    synthDelayUi.dispatch({Action::NavRight, false, true});
     expect(synthDelayUi.effectiveTrackState(0).synth.pitchHz == 120.0F &&
                synthDelaySeq.track(0).synth.pitchHz == 110.0F,
            "live Synth Pitch edit updates effectiveTrackState and queues command");
     synthDelayUi.dispatch({Action::NavDown});
     expect(synthDelayUi.state().soundField == SoundField::Morph,
            "SOUND navigation reaches Synth Morph field");
-    synthDelayUi.dispatch({Action::NavRight});
+    synthDelayUi.dispatch({Action::NavRight, false, true});
     expect(std::abs(synthDelayUi.effectiveTrackState(0).synth.morph - 0.55F) < 1e-4F,
            "live Synth Morph edit updates effectiveTrackState");
     for (int i = 0; i < 4; ++i) {
@@ -1264,19 +1346,19 @@ void testEffectiveTrackStateAndTempoControls() {
     }
     expect(synthDelayUi.state().soundField == SoundField::DelayTime,
            "SOUND navigation reaches DelayTime field");
-    synthDelayUi.dispatch({Action::NavRight});
+    synthDelayUi.dispatch({Action::NavRight, false, true});
     expect(synthDelayUi.effects().delayMilliseconds == 275,
            "SOUND > DelayTime adjusts delay time in ms");
     synthDelayUi.dispatch({Action::NavDown});
     expect(synthDelayUi.state().soundField == SoundField::DelayFeedback,
            "SOUND navigation reaches DelayFeedback field");
-    synthDelayUi.dispatch({Action::NavRight});
+    synthDelayUi.dispatch({Action::NavRight, false, true});
     expect(std::abs(synthDelayUi.effects().delayFeedback - 0.30F) < 1e-4F,
            "SOUND > DelayFeedback adjusts feedback ratio");
     synthDelayUi.dispatch({Action::NavDown});
     expect(synthDelayUi.state().soundField == SoundField::DelayMix,
            "SOUND navigation reaches DelayMix field");
-    synthDelayUi.dispatch({Action::NavRight});
+    synthDelayUi.dispatch({Action::NavRight, false, true});
     expect(std::abs(synthDelayUi.effects().delayMix - 0.25F) < 1e-4F,
            "SOUND > DelayMix adjusts wet mix ratio");
 }
@@ -1302,6 +1384,7 @@ int main() {
     testSampleBrowser();
     testUiAudioParameterQueue();
     testScreensAndEditRanges();
+    testParameterColumnNavigation();
     testModalsAndFineMode();
     testSystemThemeSelection();
     testEffectiveTrackStateAndTempoControls();

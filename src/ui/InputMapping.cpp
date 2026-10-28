@@ -66,7 +66,11 @@ bool ControllerMappingProfile::isValid() const noexcept {
 }
 
 std::optional<ActionEvent> InputMapping::keyboard(
-    KeyboardKey key, bool shiftHeld, bool isRepeat, bool isPressed) noexcept {
+    KeyboardKey key,
+    bool shiftHeld,
+    bool isRepeat,
+    bool isPressed,
+    bool ctrlHeld) noexcept {
     ActionEvent event{Action::Back};
     switch (key) {
     case KeyboardKey::Up:
@@ -118,6 +122,11 @@ std::optional<ActionEvent> InputMapping::keyboard(
         event.action = Action::ValueFine;
         event.fine = isPressed;
         break;
+    }
+
+    if (event.action == Action::NavUp || event.action == Action::NavDown ||
+        event.action == Action::NavLeft || event.action == Action::NavRight) {
+        event.edit = ctrlHeld;
     }
 
     if (isRepeat && !isRepeatable(event.action)) {

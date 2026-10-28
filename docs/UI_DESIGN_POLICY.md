@@ -270,7 +270,10 @@ Apply the same super-flat visual language across all screens.
 
 Display eight tracks as horizontal rows. Each row has its track identifier and
 Euclidean step distribution; playback illumination moves through the patterns.
-Keep BPM, playback state, and selected-track information small and unobtrusive.
+Keep BPM, playback state, and selected-track information small and unobtrusive,
+but name the selected track explicitly with a `TRKn` badge rather than relying
+only on an unlabeled pip. MAIN uses no bottom hint band: its lanes extend to the
+lower margin so the rhythm stays the dominant graphic.
 The groove should be understandable at a glance.
 
 ### EDIT
@@ -282,7 +285,9 @@ simple numeric values, not a conventional matrix of boxed step buttons.
 ### SOUND
 
 Present sound-source and synthesis parameters with the same flat-bar language.
-Keep labels concise and values easy to read.
+Keep labels concise and values easy to read. The header carries an accent
+`TRKn` badge so the edited track is never ambiguous, and the left/right columns
+stay visually separate without boxing every row.
 
 ### MIXER
 

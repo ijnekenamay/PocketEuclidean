@@ -16,7 +16,9 @@ illumination must be driven by the sequencer event timeline, not UI frame count.
 
 | Keyboard | Logical action |
 | --- | --- |
-| Up / Down / Left / Right | Navigate, or adjust the focused EDIT value |
+| Up / Down | Select a row, track, or category |
+| Left / Right | Move between the two parameter columns on SOUND/MODULATION; adjust the focused value on EDIT/MIXER/SYSTEM |
+| Ctrl+Left / Right | Adjust the focused SOUND/MODULATION value (tracker-style edit modifier) |
 | Enter | Confirm / open EDIT from MAIN |
 | Escape | Back / close the topmost modal |
 | Space | Start/stop |
@@ -26,7 +28,7 @@ illumination must be driven by the sequencer event timeline, not UI frame count.
 | Tab / Shift+Tab | Next / previous primary screen |
 | P | Open project menu |
 | F1 | Contextual help |
-| Shift+Arrow | Fine value adjustment |
+| Shift+Arrow | Fine value adjustment (combine with Ctrl on SOUND/MODULATION) |
 
 OS key-repeat events are ignored for non-directional actions, so holding Space
 does not repeatedly toggle transport. Use `InputRepeater` for directional
@@ -44,16 +46,18 @@ project menu, help) fire on the press edge only. Key-up and button-up never
 apply them a second time; `InputMapping::shouldDispatch` centralizes that rule
 so a toggle cannot be applied twice by one physical press. The Shift modifier
 is the exception: both edges update fine-adjust state. When the window loses
-focus or is minimized, the adapter clears held repeats, the Shift modifier,
-the Select+Start quit combination, and analog trigger latches, because the
-matching release event may never arrive. Device disconnect does the same.
+focus or is minimized, the adapter clears held repeats, the Shift and Ctrl
+modifiers, the Select+Start quit combination, and analog trigger latches,
+because the matching release event may never arrive. Device disconnect does
+the same.
 
 ## Default logical controller mapping
 
 | SDL GameController logical control | Logical action |
 | --- | --- |
 | D-pad | Navigate |
-| A / B | Confirm / Back |
+| A | Confirm; hold with Left/Right to adjust a SOUND/MODULATION value |
+| B | Back |
 | X / Y | Mute / Help |
 | L1 / R1 | Previous / next track |
 | L2 / R2 | Previous / next screen |
@@ -73,6 +77,9 @@ persist raw SDL or joystick button numbers in the shared profile.
 
 - MAIN: Up/Down selects one of eight tracks with wraparound; Confirm opens
   EDIT; Play/stop, mute, and primary-screen navigation are available.
+  The selected track is named in the header (`TRK1` … `TRK8`) next to the
+  Euclidean summary. MAIN does not draw a bottom footer: its eight lanes use
+  the full viewport height so the rhythm remains the dominant graphic.
   START and Space are a toggle, not press-and-hold: the first press resets
   every track and the master clock to step zero and starts playback; the next
   press stops the clock. Releasing the key or button does nothing, and OS
@@ -92,14 +99,19 @@ persist raw SDL or joystick button numbers in the shared profile.
   post-jitter triggers as MAIN, and the banner carries the `JIT` indicator.
 - SOUND: Up/Down selects per-track Attack, Decay, Filter Enable, Filter
   Cutoff, Synth Engine, Plaits Model, Synth Pitch, Synth Morph, Synth Timbre,
-  Synth Color, Sample, Delay Time, Delay Feedback, and Delay Mix fields;
-  Left/Right changes the selected value. Attack spans 1–250 ms and Decay spans
+  Synth Color, Sample, Delay Time, Delay Feedback, and Delay Mix fields.
+  Left/Right moves between the left synthesis column and the right
+  timbre/effect column at the same row; the header badge (`TRK1` … `TRK8`)
+  names the track being edited. Hold Ctrl (keyboard) or A (gamepad) while
+  pressing Left/Right to change the selected value; Shift makes that change
+  fine on the keyboard. A quick Confirm/A tap still opens the browser or
+  toggles a discrete field. Attack spans 1–250 ms and Decay spans
   20 ms–4 s. Coarse changes are 10 ms for Attack, 100 ms for Decay, 10 Hz for
   synth pitch, and 1000 Hz for cutoff; fine changes are 1 ms, 10 ms, 1 Hz, and
   100 Hz. Cutoff spans 100 Hz–20 kHz and is limited below Nyquist during
   rendering.
-  Filter Enable and Synth Engine are discrete: Left/Right and Confirm toggle
-  them between OFF/ON and BASIC-VA/PLAITS. Plaits Model is an independent
+  Filter Enable and Synth Engine are discrete: Ctrl/A+Left/Right or Confirm
+  toggle them between OFF/ON and BASIC-VA/PLAITS. Plaits Model is an independent
   index field (1-based number plus a four-letter name, e.g. `1 VA`, `8 HHAT`)
   that wraps through all sixteen engines; the model applies only while the
   engine is PLAITS, and Morph remains a continuous parameter *inside* the
@@ -122,7 +134,9 @@ persist raw SDL or joystick button numbers in the shared profile.
   code must include it. Back returns to EDIT.
 - MIXER: Up/Down selects one of eight tracks. Confirm cycles Volume, Pan,
   Mute, Reverb Send, Delay Send, and Master Volume; Left/Right adjusts the
-  focused value. The MUTE button in each strip shows the current mute state.
+  focused value. The header carries the `TRKn` badge and the focused field
+  name/value without repeating the track number. The MUTE button in each strip
+  shows the current mute state.
   The global MuteToggle action remains a one-action shortcut. Track volume, pan,
   mute, and both effect sends are project state; master volume is a global
   system audio preference. Reverb and delay sends are post-fader (after track
@@ -135,14 +149,17 @@ persist raw SDL or joystick button numbers in the shared profile.
   `UiState::audioTrackSettings`. Mute gates the mixed output without stopping
   sequencer triggers or modulation.
 - MODULATION: Up/Down selects the first LFO's fields followed by the selected
-  track's jitter fields; Left/Right changes values. LFO fields include enable,
-  waveform, sync (`LFO SYNC`), rate/division, destination, and amount. The
-  destination is exactly one of Eleng, Efill, or Eoffs. Jitter enable and
-  intensity follow immediately after the LFO fields; mode, synchronized rate,
-  shift range (`SHIFT`), and optional deterministic seed controls are also
-  available. Enter toggles the focused enable option. The seed value is shown as
-  eight hex digits so all 32 bits stay visible on one line. The data model
-  supports four LFOs per track, while the initial UI exposes only the first.
+  track's jitter fields. Left/Right moves between the LFO column and the
+  jitter column; hold Ctrl (keyboard) or A (gamepad) while pressing Left/Right
+  to change a value. The header badge names the track being edited. LFO fields
+  include enable, waveform, sync (`LFO SYNC`), rate/division, destination, and
+  amount. The destination is exactly one of Eleng, Efill, or Eoffs. Jitter
+  enable and intensity follow immediately after the LFO fields; mode,
+  synchronized rate, shift range (`SHIFT`), and optional deterministic seed
+  controls are also available. Enter toggles the focused enable option. The
+  seed value is shown as eight hex digits so all 32 bits stay visible on one
+  line. The data model supports four LFOs per track, while the initial UI
+  exposes only the first.
 - SYSTEM: Up/Down navigates Clock/Transport, MIDI, Audio, Input/Controls,
   Display, Project/Storage, and About/Diagnostics categories. Settings are
   persisted in the versioned v4 system file, separately from project data. In
@@ -170,8 +187,8 @@ normal event queue before that frame, so the real adapter code (including
 press/release edge handling) runs without a human at the keyboard. The spec is a
 comma-separated list of `key[:action]`, where key is `up`, `down`, `left`,
 `right`, `enter`, `escape`, `space`, `m`, `q`, `e`, `tab`, `pageup`, `pagedown`,
-`p`, `f1`, or `shift`, and action is `tap` (default), `down`, `up`, or `repeat`.
-Events fire 300 ms apart starting at 400 ms. Examples:
+`p`, `f1`, `shift`, or `ctrl`, and action is `tap` (default), `down`, `up`, or
+`repeat`. Events fire 300 ms apart starting at 400 ms. Examples:
 
 - `--inject-keys space:tap` → header shows `PLAY` (one press starts).
 - `--inject-keys space:down,space:up` → header still shows `PLAY` (release does
@@ -180,6 +197,9 @@ Events fire 300 ms apart starting at 400 ms. Examples:
   master tick, proving the first press ran and the second stopped.
 - `--inject-keys space:down,space:repeat` → header still shows `PLAY` (OS
   key-repeat cannot toggle transport twice).
+- `--inject-keys ctrl:down,right:tap,ctrl:up` → on SOUND the selection stays on
+  ATTACK while its value steps up (tracker-style edit), instead of moving to the
+  right column.
 
 ## Manual test checklist
 
@@ -190,6 +210,11 @@ Events fire 300 ms apart starting at 400 ms. Examples:
 - [ ] Edit length, fill, offset, instrument, and volume with keyboard and pad.
 - [ ] Adjust per-track SOUND Attack/Decay values with coarse and fine input;
   verify settings persist independently across all eight tracks.
+- [ ] On SOUND and MODULATION, move between the two columns with Left/Right and
+  verify the value does not change; hold A (pad) or Ctrl (keyboard) with
+  Left/Right and verify the value changes without leaving the focused row.
+- [ ] Verify the `TRKn` header badge matches the selected track on MAIN, EDIT,
+  SOUND, MIXER, and MODULATION.
 - [ ] Enable the per-track low-pass in SOUND, adjust cutoff, and verify
   bypass/filtered behavior and independent settings for all tracks.
 - [ ] Reduce length below fill and verify fill clamps immediately.
@@ -215,7 +240,7 @@ Events fire 300 ms apart starting at 400 ms. Examples:
 - [ ] Start/stop using Start and Space; verify the first press starts from step 0,
   the next press stops, releasing the key does nothing, and repeated key-down
   does not toggle again.
-- [ ] On SOUND, toggle Synth Engine with Left/Right and Confirm; verify BASIC-VA
+- [ ] On SOUND, toggle Synth Engine with Ctrl/A+Left/Right and Confirm; verify BASIC-VA
   and PLAITS both sound and that the MODEL field selects each of the sixteen
   Plaits engines independently of Morph.
 - [ ] On SOUND, open SAMPLE, browse directories, assign a WAV to a track, and

@@ -70,6 +70,10 @@ enum class InputSource : std::uint8_t {
 struct ActionEvent {
     Action action;
     bool fine = false;
+    // Tracker-style value edit modifier: true while the Confirm/A button (or
+    // Ctrl on the keyboard) is held. Plain Left/Right then adjust the focused
+    // parameter instead of moving between columns.
+    bool edit = false;
 };
 
 constexpr std::size_t ControllerControlCount =
@@ -94,7 +98,8 @@ public:
         KeyboardKey key,
         bool shiftHeld = false,
         bool isRepeat = false,
-        bool isPressed = true) noexcept;
+        bool isPressed = true,
+        bool ctrlHeld = false) noexcept;
     static std::optional<ActionEvent> controller(
         ControllerControl control) noexcept;
     static std::optional<ActionEvent> controller(

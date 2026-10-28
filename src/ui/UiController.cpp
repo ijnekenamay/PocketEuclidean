@@ -13,6 +13,25 @@ constexpr std::size_t ModulationFieldCount = 13;
 constexpr std::size_t MixerFieldCount = 6;
 constexpr std::size_t SettingsCategoryCount = 7;
 constexpr std::size_t ProjectMenuItemCount = 5;
+// Two-column parameter screens. Keep these in sync with the firstColumnRows
+// values used by the SOUND and MODULATION renderers.
+constexpr int SoundLeftColumnRows = 7;
+constexpr int ModulationLeftColumnRows = 6;
+
+int adjacentColumnIndex(int index, int leftRows, int total,
+                        int direction) noexcept {
+    const int rightRows = total - leftRows;
+    if (direction > 0) {
+        if (index < leftRows && rightRows > 0) {
+            return leftRows + std::min(index, rightRows - 1);
+        }
+    } else if (direction < 0) {
+        if (index >= leftRows) {
+            return std::min(index - leftRows, leftRows - 1);
+        }
+    }
+    return index;
+}
 
 std::size_t wrapIndex(int value, std::size_t count) noexcept {
     const auto signedCount = static_cast<int>(count);
@@ -290,11 +309,15 @@ void UiController::dispatchSound(ActionEvent event) {
                       SoundFieldCount));
         break;
     case Action::NavLeft:
-        changeSoundValue(-1, event.fine || state_.fineAdjust);
+    case Action::NavRight: {
+        const int direction = event.action == Action::NavRight ? 1 : -1;
+        if (event.edit) {
+            changeSoundValue(direction, event.fine || state_.fineAdjust);
+        } else {
+            moveSoundColumn(direction);
+        }
         break;
-    case Action::NavRight:
-        changeSoundValue(1, event.fine || state_.fineAdjust);
-        break;
+    }
     case Action::Confirm:
         if (state_.soundField == SoundField::FilterEnabled ||
             state_.soundField == SoundField::EngineType ||
@@ -321,6 +344,18 @@ void UiController::dispatchSound(ActionEvent event) {
     default:
         break;
     }
+}
+
+void UiController::moveSoundColumn(int direction) noexcept {
+    state_.soundField = static_cast<SoundField>(adjacentColumnIndex(
+        static_cast<int>(state_.soundField), SoundLeftColumnRows,
+        static_cast<int>(SoundFieldCount), direction));
+}
+
+void UiController::moveModulationColumn(int direction) noexcept {
+    state_.modulationField = static_cast<ModulationField>(adjacentColumnIndex(
+        static_cast<int>(state_.modulationField), ModulationLeftColumnRows,
+        static_cast<int>(ModulationFieldCount), direction));
 }
 
 void UiController::changeSoundValue(int direction, bool fine) {
@@ -553,6 +588,10 @@ void UiController::dispatchModulation(ActionEvent event) {
     case Action::NavLeft:
     case Action::NavRight: {
         const int direction = event.action == Action::NavRight ? 1 : -1;
+        if (!event.edit) {
+            moveModulationColumn(direction);
+            break;
+        }
         if (state_.modulationField >= ModulationField::JitterEnabled) {
             auto config = sequencer_.track(state_.selectedTrack).jitter;
             switch (state_.modulationField) {

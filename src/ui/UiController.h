@@ -273,6 +273,8 @@ private:
     void moveEditField(int direction) noexcept;
     void changeEditValue(int direction, bool fine);
     void changeSoundValue(int direction, bool fine);
+    void moveSoundColumn(int direction) noexcept;
+    void moveModulationColumn(int direction) noexcept;
     TrackAudioSettings audioSettings(std::size_t track) const noexcept;
     bool postAudioParameter(audio::AudioParameter parameter,
                             std::size_t track,

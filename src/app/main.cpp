@@ -185,7 +185,8 @@ bool parseArguments(int argc, char** argv, AppOptions& options) {
                 << "  --inject-keys <spec> Self-test: push synthetic key events\n"
                 << "                    (e.g. \"space:tap,space:tap\"; keys:\n"
                 << "                    up/down/left/right/enter/escape/space/\n"
-                << "                    m/q/e/tab/pageup/pagedown/p/f1/shift;\n"
+                << "                    m/q/e/tab/pageup/pagedown/p/f1/shift/\n"
+                << "                    ctrl;\n"
                 << "                    actions: tap/down/up/repeat)\n"
                 << "  --midi-list       List MIDI input ports and exit\n"
                 << "  --midi-device <n> MIDI input port index (0-15)\n";
@@ -621,7 +622,8 @@ void drawHeaderBar(SDL_Renderer* renderer,
                    std::int32_t width,
                    std::int32_t headerHeight,
                    std::optional<pocket::InstrumentType> headerInstrument = std::nullopt,
-                   bool headerMuted = false) {
+                   bool headerMuted = false,
+                   const std::string& badge = {}) {
     const std::int32_t titleScale =
         std::clamp(headerHeight / (pocket::app::GlyphHeight * 2), 2, 4);
     const std::int32_t rightScale = std::max(1, titleScale - 1);
@@ -641,6 +643,14 @@ void drawHeaderBar(SDL_Renderer* renderer,
 
     drawText(renderer, title, textX, y, usableWidth * 3 / 5, headerHeight,
              palette.primary, titleScale);
+    if (!badge.empty()) {
+        const std::int32_t badgeX =
+            textX + textPixelWidth(title, titleScale) + 14;
+        const std::int32_t badgeW =
+            margin + usableWidth * 3 / 5 - badgeX;
+        drawText(renderer, badge, badgeX, y, badgeW, headerHeight,
+                 palette.accent, titleScale);
+    }
     if (!contextRight.empty()) {
         drawTextRight(renderer, contextRight, margin + usableWidth * 2 / 5, y,
                       usableWidth * 3 / 5, headerHeight, palette.subdued,
@@ -650,17 +660,19 @@ void drawHeaderBar(SDL_Renderer* renderer,
     fillRect(renderer, margin, y + headerHeight - 2, usableWidth, 2);
 }
 
-std::string headerStatusFor(const pocket::Sequencer& sequencer,
-                            const pocket::ui::UiController& ui) {
+std::string transportStatusFor(const pocket::Sequencer& sequencer,
+                               const pocket::ui::UiController& ui) {
     std::string status =
         formatNumber("%.0f BPM  ", sequencer.tempo()) +
-        (sequencer.isPlaying() ? "PLAY  " : "STOP  ") + "T" +
-        std::to_string(ui.state().selectedTrack + 1);
+        (sequencer.isPlaying() ? "PLAY  " : "STOP  ");
     if (ui.state().fineAdjust) {
-        status += "  FINE";
+        status += "FINE  ";
     }
     if (ui.state().modified) {
-        status += "  *";
+        status += "*";
+    }
+    while (!status.empty() && status.back() == ' ') {
+        status.pop_back();
     }
     return status;
 }
@@ -768,8 +780,8 @@ void renderMainScreen(SDL_Renderer* renderer,
         }
     }
     const std::string trackSummary =
-        std::string(modulated ? "MOD " : "") +
-        (jitterActive ? "JIT " : "") + "E(" +
+        "TRK" + std::to_string(ui.state().selectedTrack + 1) + "  " +
+        (modulated ? "MOD " : "") + (jitterActive ? "JIT " : "") + "E(" +
         std::to_string(shownRhythm.fill) + "," +
         std::to_string(shownRhythm.length) + "," +
         std::to_string(shownRhythm.offset) + ")  VOL " +
@@ -911,7 +923,6 @@ void renderMainScreen(SDL_Renderer* renderer,
         setColor(renderer, fillColor);
         fillRect(renderer, barX, by, barW, bh);
     }
-    drawFooter(renderer, frame.palette, width, height);
 }
 
 // Elastic Full-Width Euclidean Step Explorer + 8-track Polymetric Alignment Matrix for EDIT screen
@@ -1525,14 +1536,16 @@ void renderRows(SDL_Renderer* renderer,
                 std::optional<pocket::InstrumentType> headerInstrument = std::nullopt,
                 bool headerMuted = false,
                 std::size_t columnCount = 1,
-                std::size_t firstColumnRows = 0) {
+                std::size_t firstColumnRows = 0,
+                const std::string& trackBadge = {},
+                const std::string& footerHint = {}) {
     const std::int32_t margin = std::max<std::int32_t>(16, width / 24);
     const std::int32_t headerHeight = std::max<std::int32_t>(36, height / 13);
     const std::int32_t footerReserve = std::max<std::int32_t>(32, height / 16);
     const std::int32_t topY = std::max<std::int32_t>(10, height / 42);
 
     drawHeaderBar(renderer, palette, title, headerRight, margin, topY, width,
-                  headerHeight, headerInstrument, headerMuted);
+                  headerHeight, headerInstrument, headerMuted, trackBadge);
 
     std::int32_t contentTop =
         topY + headerHeight + std::max<std::int32_t>(6, height / 72) +
@@ -1639,7 +1652,11 @@ void renderRows(SDL_Renderer* renderer,
                           rowScale);
         }
     }
-    drawFooter(renderer, palette, width, height);
+    if (footerHint.empty()) {
+        drawFooter(renderer, palette, width, height);
+    } else {
+        drawFooter(renderer, palette, width, height, footerHint);
+    }
 }
 
 void renderMixerScreen(SDL_Renderer* renderer,
@@ -1683,12 +1700,12 @@ void renderMixerScreen(SDL_Renderer* renderer,
         break;
     }
 
+    const std::string trackBadge = "TRK" + std::to_string(selected + 1);
     const std::string rightContext =
-        "T" + std::to_string(selected + 1) + " " +
-        fieldNames[std::min(field, fieldCount - 1)] + " " + focusValue +
-        "  ENTER:NEXT  " + headerStatusFor(sequencer, ui);
+        std::string(fieldNames[std::min(field, fieldCount - 1)]) + " " +
+        focusValue + "  ENTER:NEXT  " + transportStatusFor(sequencer, ui);
     drawHeaderBar(renderer, palette, "MIXER CONSOLE", rightContext, margin, topY,
-                  width, headerHeight);
+                  width, headerHeight, std::nullopt, false, trackBadge);
 
     const std::int32_t contentTop =
         topY + headerHeight + std::max<std::int32_t>(8, height / 64);
@@ -1834,7 +1851,8 @@ void renderMixerScreen(SDL_Renderer* renderer,
         "MST " + std::to_string(ui.systemSettings().audio.masterVolumePercent) + "%",
         textX, y, textWidth, pitch, masterColor, rowScale);
 
-    drawFooter(renderer, palette, width, height);
+    drawFooter(renderer, palette, width, height,
+               "UP/DN:TRACK  ENTER:FIELD  LEFT/RIGHT:VALUE  TAB:SCREEN");
 }
 
 
@@ -2597,6 +2615,18 @@ int runSdlApp(const AppOptions& options) {
 
     bool selectHeld = false;
     bool startHeld = false;
+    bool ctrlHeld = false;
+    // Tracker-style value editing: holding A on SOUND/MODULATION turns
+    // Left/Right into parameter adjustments instead of column moves. A tap
+    // still performs Confirm on release when no arrow was used.
+    bool editHeld = false;
+    bool editUsed = false;
+    bool editDeferred = false;
+    const auto canDeferConfirm = [&]() {
+        return ui.state().modal == pocket::ui::Modal::None &&
+               (ui.state().screen == pocket::ui::Screen::Sound ||
+                ui.state().screen == pocket::ui::Screen::Modulation);
+    };
     const auto handleControl = [&](pocket::ui::ControllerControl control,
                                    bool pressed) {
         if (control == pocket::ui::ControllerControl::Select) {
@@ -2606,6 +2636,24 @@ int runSdlApp(const AppOptions& options) {
         }
         if (selectHeld && startHeld) {
             running = false;
+            return;
+        }
+        if (control == pocket::ui::ControllerControl::A &&
+            (editHeld || (pressed && canDeferConfirm()))) {
+            if (pressed) {
+                editHeld = true;
+                editUsed = false;
+                editDeferred = true;
+            } else {
+                const bool confirm =
+                    editDeferred && !editUsed && canDeferConfirm();
+                editHeld = false;
+                editDeferred = false;
+                editUsed = false;
+                if (confirm) {
+                    dispatchUi({pocket::ui::Action::Confirm});
+                }
+            }
             return;
         }
         const auto mapped = pocket::ui::InputMapping::controller(control);
@@ -2619,9 +2667,14 @@ int runSdlApp(const AppOptions& options) {
             return;
         }
         if (pressed) {
+            auto event = *mapped;
+            if (editHeld) {
+                event.edit = true;
+                editUsed = true;
+            }
             const auto repeated = repeater.press(
                 pocket::ui::InputSource::Controller,
-                static_cast<std::uint8_t>(control), *mapped, SDL_GetTicks64());
+                static_cast<std::uint8_t>(control), event, SDL_GetTicks64());
             if (repeated) {
                 dispatchUi(*repeated);
             }
@@ -2701,6 +2754,9 @@ int runSdlApp(const AppOptions& options) {
         repeater.clear();
         selectHeld = false;
         startHeld = false;
+        editHeld = false;
+        editUsed = false;
+        editDeferred = false;
         leftTrigger = false;
         rightTrigger = false;
     };
@@ -2729,7 +2785,7 @@ int runSdlApp(const AppOptions& options) {
             {"tab", SDLK_TAB},       {"pageup", SDLK_PAGEUP},
             {"pagedown", SDLK_PAGEDOWN},
             {"p", SDLK_p},           {"f1", SDLK_F1},
-            {"shift", SDLK_LSHIFT},
+            {"shift", SDLK_LSHIFT},  {"ctrl", SDLK_LCTRL},
         };
         for (const auto& entry : Names) {
             if (name == entry.first) {
@@ -2820,6 +2876,10 @@ int runSdlApp(const AppOptions& options) {
                 // leave a direction repeating or a transport modifier stuck.
                 repeater.clear();
                 shiftHeld = false;
+                ctrlHeld = false;
+                editHeld = false;
+                editUsed = false;
+                editDeferred = false;
                 selectHeld = false;
                 startHeld = false;
                 leftTrigger = false;
@@ -2833,12 +2893,16 @@ int runSdlApp(const AppOptions& options) {
                     event.key.keysym.sym == SDLK_RSHIFT) {
                     shiftHeld = pressed;
                 }
+                if (event.key.keysym.sym == SDLK_LCTRL ||
+                    event.key.keysym.sym == SDLK_RCTRL) {
+                    ctrlHeld = pressed;
+                }
                 const auto key = toKeyboardKey(event.key.keysym.sym);
                 if (!key) {
                     continue;
                 }
                 const auto mapped = pocket::ui::InputMapping::keyboard(
-                    *key, shiftHeld, event.key.repeat != 0, pressed);
+                    *key, shiftHeld, event.key.repeat != 0, pressed, ctrlHeld);
                 if (!mapped) {
                     continue;
                 }
@@ -3029,9 +3093,10 @@ int runSdlApp(const AppOptions& options) {
             const std::size_t trackIndex =
                 std::min(ui.state().selectedTrack, pocket::TrackCount - 1);
             const auto selectedTrack = ui.effectiveTrackState(trackIndex);
-            const std::string trackTitleSuffix =
-                " T" + std::to_string(trackIndex + 1);
-            const std::string headerStatus = headerStatusFor(sequencer, ui);
+            const std::string trackBadge =
+                "TRK" + std::to_string(trackIndex + 1);
+            const std::string transportStatus =
+                transportStatusFor(sequencer, ui);
 
             const std::int32_t margin = std::max<std::int32_t>(16, width / 24);
             const std::int32_t headerHeight = std::max<std::int32_t>(36, height / 13);
@@ -3049,10 +3114,12 @@ int runSdlApp(const AppOptions& options) {
             case pocket::ui::Screen::Edit: {
                 const std::int32_t explorerH = std::max<std::int32_t>(140, height * 28 / 100);
                 renderRows(renderer, *palette, "EDIT",
-                           headerStatus, editRows(selectedTrack),
+                           transportStatus, editRows(selectedTrack),
                            static_cast<std::size_t>(ui.state().editField),
                            width, height, explorerH + 12,
-                           selectedTrack.instrument, selectedTrack.muted);
+                           selectedTrack.instrument, selectedTrack.muted, 1, 0,
+                           trackBadge,
+                           "UP/DN:FIELD  LEFT/RIGHT:VALUE  Q/E:TRACK  TAB:SCREEN  ESC:BACK");
                 drawEditEuclideanExplorer(renderer, *palette, sequencer, ui,
                                           audioRunning ? &engine : nullptr,
                                           margin, bannerTop, bannerW,
@@ -3062,12 +3129,14 @@ int runSdlApp(const AppOptions& options) {
             case pocket::ui::Screen::Sound: {
                 const std::int32_t vizH = std::max<std::int32_t>(88, height * 15 / 100);
                 renderRows(renderer, *palette, "SOUND",
-                           headerStatus,
+                           transportStatus,
                            soundRows(selectedTrack, ui.effects(),
                                      engine.samplePath(trackIndex)),
                            static_cast<std::size_t>(ui.state().soundField),
                            width, height, vizH + 10,
-                           selectedTrack.instrument, selectedTrack.muted, 2, 7);
+                           selectedTrack.instrument, selectedTrack.muted, 2, 7,
+                           trackBadge,
+                           "UP/DN:ROW  LEFT/RIGHT:COL  A/CTRL+LEFT/RIGHT:VALUE  Q/E:TRACK  TAB:SCREEN");
                 drawSoundVisualizer(renderer, *palette, selectedTrack,
                                     ui.effects(), sequencer.isPlaying(),
                                     SDL_GetTicks64(), margin, bannerTop, bannerW,
@@ -3082,10 +3151,12 @@ int runSdlApp(const AppOptions& options) {
             case pocket::ui::Screen::Modulation: {
                 const std::int32_t vizH = std::max<std::int32_t>(84, height * 14 / 100);
                 renderRows(renderer, *palette, "MODULATION",
-                           headerStatus, modulationRows(selectedTrack),
+                           transportStatus, modulationRows(selectedTrack),
                            static_cast<std::size_t>(ui.state().modulationField),
                            width, height, vizH + 10,
-                           selectedTrack.instrument, selectedTrack.muted, 2, 6);
+                           selectedTrack.instrument, selectedTrack.muted, 2, 6,
+                           trackBadge,
+                           "UP/DN:ROW  LEFT/RIGHT:COL  A/CTRL+LEFT/RIGHT:VALUE  Q/E:TRACK  TAB:SCREEN");
                 pocket::ui::LiveModulationState live;
                 const bool modPlaying = sequencer.isPlaying();
                 if (modPlaying) {
@@ -3107,10 +3178,11 @@ int runSdlApp(const AppOptions& options) {
                 break;
             }
             case pocket::ui::Screen::System:
-                renderRows(renderer, *palette, "SYSTEM", headerStatus,
+                renderRows(renderer, *palette, "SYSTEM", transportStatus,
                            systemRows(ui.systemSettings(), midiOpen),
                            static_cast<std::size_t>(ui.state().systemCategory),
-                           width, height);
+                           width, height, 0, std::nullopt, false, 1, 0, {},
+                           "UP/DN:CATEGORY  LEFT/RIGHT:CHANGE  TAB:SCREEN  ESC:BACK");
                 break;
             }
             renderModal(renderer, *palette, ui, width, height);
