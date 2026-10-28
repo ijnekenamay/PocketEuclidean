@@ -44,6 +44,7 @@ enum class ModulationField : std::uint8_t {
 
 enum class TuringField : std::uint8_t {
     Enabled,
+    Locked,
     Clock,
     Rate,
     Length,
@@ -61,6 +62,8 @@ enum class MixerField : std::uint8_t {
     Volume,
     Pan,
     Mute,
+    Lock,
+    Dice,
     ReverbSend,
     DelaySend,
     MasterVolume
@@ -185,6 +188,14 @@ public:
     }
 
     const UiState& state() const noexcept { return state_; }
+    // Extra entropy for the phrase dice. The app passes a wall-clock value at
+    // startup; tests keep the deterministic default.
+    void seedDice(std::uint32_t entropy) noexcept {
+        diceState_ = entropy == 0 ? 0x2545F491U : entropy;
+    }
+    // Rolls a new seed for the selected track's S&H phrase. The seed is a real
+    // parameter, so both the UI and the audio thread rebuild the same register.
+    bool rollTuringSeed() noexcept;
     const platform::SystemSettings& systemSettings() const noexcept {
         return systemSettings_;
     }
@@ -305,6 +316,7 @@ private:
     void executePendingProjectRequest() noexcept;
     void openSampleBrowser() noexcept;
     void dispatchFileBrowser(Action action) noexcept;
+    std::uint32_t nextDice() noexcept;
 
     Sequencer& sequencer_;
     audio::AudioParameterQueue* audioParameterQueue_ = nullptr;
@@ -315,6 +327,7 @@ private:
     FileBrowserRequest fileBrowserRequest_ = FileBrowserRequest::None;
     std::string chosenSample_;
     std::size_t chosenTrack_ = 0;
+    std::uint32_t diceState_ = 0x2545F491U;
 };
 
 } // namespace pocket::ui

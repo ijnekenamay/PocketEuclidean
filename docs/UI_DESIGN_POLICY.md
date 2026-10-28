@@ -294,7 +294,10 @@ stay visually separate without boxing every row.
 Use horizontal level bars for track volume and a minimal centered pan indicator.
 Communicate mute and solo states, if implemented, with text or restrained
 luminance changes rather than boxed buttons. Peak meters may be flat bars without
-ornamental frames.
+ornamental frames. The per-track phrase LOCK and DICE sit immediately right of
+MUTE as flat text badges in the same strip: LOCK holds a filled state while
+engaged, while DICE is momentary and only brightens when focused. Both use the
+same four semantic colors and add no frames or drop shadows.
 
 ### MODULATION
 
@@ -308,8 +311,11 @@ slot on the left, with the moving head marked by luminance or a single accent
 line, and the current semitone offset on the right. The parameter rows keep the
 same flat-bar grammar as SOUND and MODULATION. Do not add piano-roll grids,
 note-name badges per step, or decorative sequencer chrome; the register's shape
-and the head position are the graphic. A reseed is a performance gesture, so it
-should read as a change in the bars themselves rather than a dialog.
+and the head position are the graphic. LOCK is a normal switch row directly
+under ENABLE, and the header appends `LOCK` while it is engaged so a frozen
+phrase is never mistaken for a dead one. A dice roll is a performance gesture,
+so it should read as a change in the bars themselves rather than a dialog; the
+SEED row and the MIXER header value show the rolled number as confirmation.
 
 ### SYSTEM
 

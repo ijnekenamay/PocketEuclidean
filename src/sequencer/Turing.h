@@ -50,6 +50,10 @@ struct TuringConfig {
     std::uint8_t root = 0;
     std::uint8_t glide = 0;
     std::uint8_t drift = 0;
+    // Performance lock: freezes the register and the drift so the current
+    // phrase repeats exactly, even while CHANCE and DRIFT are above zero.
+    // Rolling a new seed still rewrites it, which is the "unlock" gesture.
+    bool locked = false;
     bool useCustomSeed = false;
     std::uint32_t randomSeed = 1;
 };
@@ -64,6 +68,7 @@ struct TuringDisplayState {
     std::uint8_t length = 0;
     std::int8_t semitone = 0;
     bool enabled = false;
+    bool locked = false;
     bool valid = false;
 };
 

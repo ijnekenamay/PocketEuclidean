@@ -202,6 +202,7 @@ private:
                a.chance == b.chance && a.range == b.range &&
                a.scale == b.scale && a.root == b.root &&
                a.glide == b.glide && a.drift == b.drift &&
+               a.locked == b.locked &&
                a.useCustomSeed == b.useCustomSeed &&
                a.randomSeed == b.randomSeed;
     }

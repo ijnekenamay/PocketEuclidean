@@ -1995,6 +1995,7 @@ void testProjectStoreRoundTrip() {
     turing.root = 5;
     turing.glide = 40;
     turing.drift = 25;
+    turing.locked = true;
     turing.useCustomSeed = true;
     turing.randomSeed = 777;
     expect(source.setTuring(7, turing), "test Turing settings are valid");
@@ -2043,7 +2044,8 @@ void testProjectStoreRoundTrip() {
                restoredTuring.range == 9 &&
                restoredTuring.scale == TuringScale::Dorian &&
                restoredTuring.root == 5 && restoredTuring.glide == 40 &&
-               restoredTuring.drift == 25 && restoredTuring.useCustomSeed &&
+               restoredTuring.drift == 25 && restoredTuring.locked &&
+               restoredTuring.useCustomSeed &&
                restoredTuring.randomSeed == 777,
            "Turing configuration restored");
     expect(restored.track(3).rhythm.length == ExamplePresetRhythms[3].length &&
@@ -2086,6 +2088,20 @@ void testProjectStoreRoundTrip() {
     expect(!legacy.tracks[0].turing.enabled &&
                legacy.tracks[0].turing.length == 8,
            "version 6 projects load with the Turing machine disabled");
+
+    project::ProjectData v10Legacy;
+    expect(project::parseProject(
+               "PocketEuclideanProject\n"
+               "version 10\n"
+               "tempo 120\n"
+               "track.0.turing 1 2 1 12 40 9 3 5 15 10 1 4242\n",
+               v10Legacy, &error),
+           "version 10 projects load without a lock field: " + error);
+    expect(v10Legacy.tracks[0].turing.enabled &&
+               v10Legacy.tracks[0].turing.length == 12 &&
+               v10Legacy.tracks[0].turing.randomSeed == 4242 &&
+               !v10Legacy.tracks[0].turing.locked,
+           "version 10 Turing lines default to unlocked");
 
     project::ProjectData v8Legacy;
     expect(project::parseProject(
@@ -2537,6 +2553,54 @@ void testTuringMachine() {
     }
     expect(evolving.display(0, config).values != beforeEvolution,
            "100 percent chance rewrites the register every step");
+
+    TuringConfig locked = config;
+    locked.locked = true;
+    TuringEngine lockedEngine;
+    // Seed the runtime up front; the first process() would otherwise lazily
+    // build the register and make the "before" snapshot meaningless.
+    lockedEngine.resetTrack(0, locked);
+    const auto beforeLock = lockedEngine.display(0, locked).values;
+    for (std::size_t tick = 0; tick < 16; ++tick) {
+        (void)lockedEngine.process(0, locked, true, tick, 0.125);
+    }
+    expect(lockedEngine.display(0, locked).values == beforeLock,
+           "lock freezes the register even at 100 percent chance");
+
+    TuringConfig drifty = config;
+    drifty.chance = 0;
+    drifty.length = 4;
+    drifty.drift = 100;
+    drifty.locked = false;
+    TuringEngine driftEngine;
+    std::array<std::int8_t, 4> firstLoop{};
+    std::array<std::int8_t, 4> secondLoop{};
+    for (std::size_t tick = 0; tick < firstLoop.size(); ++tick) {
+        firstLoop[tick] =
+            driftEngine.process(0, drifty, true, tick, 0.125).value_or(0);
+    }
+    for (std::size_t tick = 0; tick < secondLoop.size(); ++tick) {
+        secondLoop[tick] = driftEngine
+                               .process(0, drifty, true, tick + firstLoop.size(),
+                                        0.125)
+                               .value_or(0);
+    }
+    expect(firstLoop != secondLoop,
+           "unlocked drift moves the phrase at the loop boundary");
+    drifty.locked = true;
+    TuringEngine lockedDriftEngine;
+    for (std::size_t tick = 0; tick < firstLoop.size(); ++tick) {
+        (void)lockedDriftEngine.process(0, drifty, true, tick, 0.125);
+    }
+    bool driftStayed = true;
+    for (std::size_t tick = 0; tick < secondLoop.size(); ++tick) {
+        driftStayed =
+            driftStayed &&
+            lockedDriftEngine
+                    .process(0, drifty, true, tick + firstLoop.size(), 0.125)
+                    .value_or(0) == firstLoop[tick];
+    }
+    expect(driftStayed, "lock also freezes the drift transposition");
 
     TuringConfig euclid = config;
     euclid.chance = 0;

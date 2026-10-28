@@ -242,25 +242,31 @@ std::optional<std::int8_t> TuringEngine::process(
     }
     }
 
+    // Capture the drift before a loop-end update so the note just read keeps
+    // the transposition it was chosen with.
+    const std::int8_t noteDrift = runtime.driftSemitone;
     if (clocked) {
         const auto value = runtime.values[runtime.head];
         runtime.currentSemitone = static_cast<std::int8_t>(
             std::clamp(mapValue(value, config),
                        -static_cast<int>(TuringMaxSemitones),
                        static_cast<int>(TuringMaxSemitones)));
-        if (config.chance == 100 ||
-            (config.chance != 0 && nextRandom(runtime) % 100U < config.chance)) {
+        if (!config.locked &&
+            (config.chance == 100 ||
+             (config.chance != 0 &&
+              nextRandom(runtime) % 100U < config.chance))) {
             runtime.values[runtime.head] = randomByte(runtime);
         }
         runtime.head =
             static_cast<std::uint8_t>((runtime.head + 1) % config.length);
-        if (runtime.head == 0) {
+        if (runtime.head == 0 && !config.locked) {
+            // The new drift starts with the next loop.
             updateDrift(runtime, config);
         }
     }
 
     const int offset = static_cast<int>(runtime.currentSemitone) +
-                       static_cast<int>(runtime.driftSemitone);
+                       static_cast<int>(noteDrift);
     return static_cast<std::int8_t>(
         std::clamp(offset, -static_cast<int>(TuringMaxSemitones),
                    static_cast<int>(TuringMaxSemitones)));
@@ -282,6 +288,7 @@ TuringDisplayState TuringEngine::display(
                    -static_cast<int>(TuringMaxSemitones),
                    static_cast<int>(TuringMaxSemitones)));
     state.enabled = config.enabled;
+    state.locked = config.locked;
     state.valid = runtime.seeded;
     return state;
 }

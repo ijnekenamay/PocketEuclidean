@@ -10,8 +10,8 @@ namespace {
 constexpr std::size_t EditFieldCount = 6;
 constexpr std::size_t SoundFieldCount = 14;
 constexpr std::size_t ModulationFieldCount = 13;
-constexpr std::size_t TuringFieldCount = 12;
-constexpr std::size_t MixerFieldCount = 6;
+constexpr std::size_t TuringFieldCount = 13;
+constexpr std::size_t MixerFieldCount = 8;
 constexpr std::size_t SettingsCategoryCount = 7;
 constexpr std::size_t ProjectMenuItemCount = 5;
 // Two-column parameter screens. Keep these in sync with the firstColumnRows
@@ -434,6 +434,9 @@ void UiController::changeTuringValue(int direction, bool fine) {
             seed < 0 ? 0 : seed > 65535 ? 65535 : seed);
         break;
     }
+    case TuringField::Locked:
+        config.locked = !config.locked;
+        break;
     }
     if (sequencer_.setTuring(state_.selectedTrack, config)) {
         state_.modified = true;
@@ -463,13 +466,14 @@ void UiController::dispatchTuring(ActionEvent event) {
         break;
     }
     case Action::Confirm:
-        // Confirm on the two switches toggles them. On every other row it is
-        // a performance gesture that rewrites the S&H register.
+        // Confirm on the three switches toggles them. On every other row it
+        // rolls a fresh phrase seed, the "throw the dice" gesture.
         if (state_.turingField == TuringField::Enabled ||
-            state_.turingField == TuringField::CustomSeed) {
+            state_.turingField == TuringField::CustomSeed ||
+            state_.turingField == TuringField::Locked) {
             changeTuringValue(1, false);
         } else {
-            sequencer_.reseedTuring(state_.selectedTrack);
+            (void)rollTuringSeed();
         }
         break;
     case Action::Back:
@@ -491,6 +495,31 @@ void UiController::dispatchTuring(ActionEvent event) {
     default:
         break;
     }
+}
+
+std::uint32_t UiController::nextDice() noexcept {
+    // xorshift32; only the UI thread touches this state.
+    auto value = diceState_;
+    value ^= value << 13;
+    value ^= value >> 17;
+    value ^= value << 5;
+    diceState_ = value == 0 ? 0x2545F491U : value;
+    return diceState_;
+}
+
+bool UiController::rollTuringSeed() noexcept {
+    auto config = sequencer_.track(state_.selectedTrack).turing;
+    // Stay inside the range the SEED row can also edit by hand, so a rolled
+    // phrase is always reproducible from the displayed number.
+    const std::uint32_t roll = nextDice();
+    config.randomSeed = (roll ^ (roll >> 16)) & 0xFFFFU;
+    config.useCustomSeed = true;
+    if (!sequencer_.setTuring(state_.selectedTrack, config)) {
+        return false;
+    }
+    // The seed is a real parameter, so the phrase can be reproduced later.
+    state_.modified = true;
+    return true;
 }
 
 void UiController::changeSoundValue(int direction, bool fine) {
@@ -927,6 +956,18 @@ void UiController::dispatchMixer(ActionEvent event) {
                 sequencer_.setMuted(state_.selectedTrack, !track.muted);
             }
             state_.modified = true;
+            break;
+        case MixerField::Lock: {
+            auto config = sequencer_.track(state_.selectedTrack).turing;
+            config.locked = !config.locked;
+            if (sequencer_.setTuring(state_.selectedTrack, config)) {
+                state_.modified = true;
+            }
+            break;
+        }
+        case MixerField::Dice:
+            // A dice has no up or down: either direction rolls a new phrase.
+            (void)rollTuringSeed();
             break;
         case MixerField::ReverbSend:
         case MixerField::DelaySend: {

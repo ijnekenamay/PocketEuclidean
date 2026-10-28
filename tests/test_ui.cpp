@@ -955,6 +955,20 @@ void testScreensAndEditRanges() {
            "mixer mute shortcut suppresses the selected track");
     const auto mixerSettings = ui.systemSettings().audio.masterVolumePercent;
     ui.dispatch({Action::Confirm});
+    expect(ui.state().mixerField == MixerField::Mute,
+           "mixer field order reaches mute after pan");
+    ui.dispatch({Action::Confirm});
+    expect(ui.state().mixerField == MixerField::Lock,
+           "mixer field order reaches the phrase lock after mute");
+    ui.dispatch({Action::NavRight});
+    expect(sequencer.track(0).turing.locked,
+           "mixer lock freezes the selected track phrase");
+    ui.dispatch({Action::Confirm});
+    const auto seedBeforeDice = sequencer.track(0).turing.randomSeed;
+    ui.dispatch({Action::NavRight});
+    expect(sequencer.track(0).turing.randomSeed != seedBeforeDice &&
+               sequencer.track(0).turing.useCustomSeed,
+           "mixer dice rolls a new phrase seed");
     ui.dispatch({Action::Confirm});
     ui.dispatch({Action::NavRight, true});
     expect(sequencer.track(0).reverbSend > 0.0F &&
@@ -1073,6 +1087,10 @@ void testScreensAndEditRanges() {
            "Turing screen enables the selected track generator");
     turingUi.dispatch({Action::NavDown});
     turingUi.dispatch({Action::NavRight, false, true});
+    expect(turingSequencer.track(0).turing.locked,
+           "Turing screen locks the selected track phrase");
+    turingUi.dispatch({Action::NavDown});
+    turingUi.dispatch({Action::NavRight, false, true});
     expect(turingSequencer.track(0).turing.clock == TuringClockMode::Euclid,
            "Turing screen selects the Euclidean clock mode");
     turingUi.dispatch({Action::NavDown});
@@ -1084,20 +1102,28 @@ void testScreensAndEditRanges() {
     expect(turingSequencer.track(0).turing.length == 9,
            "Turing screen edits the loop length");
     const auto registerBefore = turingSequencer.turingDisplay(0).values;
+    const auto seedBefore = turingSequencer.track(0).turing.randomSeed;
     turingUi.dispatch({Action::Confirm});
     expect(turingSequencer.turingDisplay(0).values != registerBefore &&
-               turingSequencer.track(0).turingReseedRevision == 1,
-           "Confirm performs a live S&H reseed without dirtying the project");
+               turingSequencer.track(0).turing.randomSeed != seedBefore &&
+               turingSequencer.track(0).turing.useCustomSeed &&
+               turingUi.state().modified,
+           "Confirm throws the phrase dice and records the new seed");
+    const auto seedAfterDice = turingSequencer.track(0).turing.randomSeed;
     for (int field = 0; field < 7; ++field) {
         turingUi.dispatch({Action::NavDown});
     }
     expect(turingUi.state().turingField == TuringField::CustomSeed,
            "Turing right column is reachable by vertical navigation");
     turingUi.dispatch({Action::Confirm});
+    expect(!turingSequencer.track(0).turing.useCustomSeed,
+           "Turing Confirm toggles the custom seed switch off");
+    turingUi.dispatch({Action::Confirm});
     turingUi.dispatch({Action::NavDown});
     turingUi.dispatch({Action::NavRight, false, true});
     expect(turingSequencer.track(0).turing.useCustomSeed &&
-               turingSequencer.track(0).turing.randomSeed == 2,
+               turingSequencer.track(0).turing.randomSeed ==
+                   std::min<std::uint32_t>(seedAfterDice + 1, 65535),
            "Turing screen edits the custom seed");
     turingUi.dispatch({Action::Back});
     expect(turingUi.state().screen == Screen::Modulation,

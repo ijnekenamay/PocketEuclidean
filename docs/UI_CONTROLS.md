@@ -133,10 +133,15 @@ persist raw SDL or joystick button numbers in the shared profile.
   value while the callback owns the runtime setting; project snapshot/save
   code must include it. Back returns to EDIT.
 - MIXER: Up/Down selects one of eight tracks. Confirm cycles Volume, Pan,
-  Mute, Reverb Send, Delay Send, and Master Volume; Left/Right adjusts the
-  focused value. The header carries the `TRKn` badge and the focused field
-  name/value without repeating the track number. The MUTE button in each strip
-  shows the current mute state.
+  Mute, Lock, Dice, Reverb Send, Delay Send, and Master Volume; Left/Right
+  adjusts the focused value. The header carries the `TRKn` badge and the
+  focused field name/value without repeating the track number. The MUTE button
+  in each strip shows the current mute state.
+  LOCK sits immediately right of MUTE and toggles the track's S&H phrase lock
+  (the same persistent flag as the TURING screen). DICE sits right of LOCK and
+  rolls a fresh phrase seed on either Left or Right, because a die has no up or
+  down; it is the quick "change the mood" gesture while mixing. Both fields act
+  on the selected track only.
   The global MuteToggle action remains a one-action shortcut. Track volume, pan,
   mute, and both effect sends are project state; master volume is a global
   system audio preference. Reverb and delay sends are post-fader (after track
@@ -161,7 +166,7 @@ persist raw SDL or joystick button numbers in the shared profile.
   line. The data model supports four LFOs per track, while the initial UI
   exposes only the first.
 - TURING: Up/Down selects the selected track's sample-and-hold phrase fields:
-  ENABLE, CLOCK, RATE, LENGTH, CHANCE, RANGE, SCALE, ROOT, GLIDE, DRIFT,
+  ENABLE, LOCK, CLOCK, RATE, LENGTH, CHANCE, RANGE, SCALE, ROOT, GLIDE, DRIFT,
   CST SEED, and SEED. Left/Right moves between the two columns; hold Ctrl
   (keyboard) or A (gamepad) while pressing Left/Right to change a value.
   CLOCK chooses TEMPO (16th-note transport ticks), EUCLID (the track's
@@ -169,15 +174,22 @@ persist raw SDL or joystick button numbers in the shared profile.
   tempo). RATE is interpreted per clock mode: musical divisions for TEMPO,
   trigger multiples for EUCLID, and 0.5–8 Hz for FREE. LENGTH is 2–32 steps,
   CHANCE is 0–100% and controls how often the byte under the head is
-  re-randomised (0% locks an exact loop, 100% changes every step), RANGE is
+  re-randomised (0% gives an exact loop, 100% changes every step), RANGE is
   ±1–24 scale degrees, and SCALE/ROOT quantise the register to a musical key.
   GLIDE is 0–100% portamento (up to 0.5 s) applied to held sampler and synth
   voices; DRIFT slowly transposes the whole phrase by up to one octave across
   loop passes. SEED is eight hex digits and CST SEED selects the deterministic
-  seed. A quick Confirm/A tap reseeds the register as a performance gesture;
-  on ENABLE and CST SEED it toggles the switch instead. The left card draws the
-  live 32-byte register with the moving head, and the right card shows the
-  current semitone offset. The `TRKn` badge names the edited track.
+  seed.
+  LOCK freezes the phrase: the register keeps looping and the head keeps
+  moving, but CHANCE re-randomisation and DRIFT transposition stop until LOCK
+  is switched off. The header shows `LOCK` while it is engaged.
+  A quick Confirm/A tap on any value row (including SEED) throws the phrase
+  dice: it picks a new seed in 0–65535, switches CST SEED on, and marks the
+  project modified, so the phrase shown on screen is the phrase that plays and
+  can be saved. On ENABLE, LOCK, and CST SEED, Confirm toggles the switch
+  instead. The left card draws the live 32-byte register with the moving head,
+  and the right card shows the current semitone offset. The `TRKn` badge names
+  the edited track.
 - SYSTEM: Up/Down navigates Clock/Transport, MIDI, Audio, Input/Controls,
   Display, Project/Storage, and About/Diagnostics categories. Settings are
   persisted in the versioned v4 system file, separately from project data. In
@@ -247,9 +259,12 @@ comma-separated list of `key[:action]`, where key is `up`, `down`, `left`,
   and that Off reproduces the stored Euclidean pattern exactly.
 - [ ] On TURING, enable the generator and verify TEMPO, EUCLID, and FREE clocks
   advance the register at their own rates. Confirm that CHANCE 0% loops the
-  phrase exactly, 100% rewrites every step, and a Confirm tap reseeds the
-  register without dirtying the project. Verify GLIDE is audible on held notes
-  and that DRIFT only moves the phrase at loop boundaries.
+  phrase exactly, 100% rewrites every step, and a Confirm tap throws the phrase
+  dice (new seed, CST SEED on, project modified). Verify that LOCK freezes both
+  CHANCE changes and DRIFT transposition while the head keeps advancing, and
+  that rolling the dice while locked keeps the lock engaged. Verify GLIDE is
+  audible on held notes and that DRIFT only moves the phrase at loop
+  boundaries.
 - [ ] With jitter enabled, verify MAIN and EDIT step bars follow the live
   post-jitter triggers and the `JIT` indicator appears when the pattern differs.
 - [ ] Verify jitter-inserted or shifted-in triggers render as half-width,
@@ -257,8 +272,9 @@ comma-separated list of `key[:action]`, where key is `up`, `down`, `left`,
 - [ ] Verify active steps are one solid fill and rest steps have no accent cap,
   inset border, or center dot.
 - [ ] Navigate all eight mixer tracks; adjust volume/pan and reverb/delay
-  sends, toggle mute without changing transport phase, and verify master
-  volume persists across projects.
+  sends, toggle mute without changing transport phase, verify the LOCK badge
+  next to MUTE freezes the track phrase, roll the DICE badge for a new phrase,
+  and verify master volume persists across projects.
 - [ ] Verify mono equal-power and stereo balance panning, smooth gain changes,
   peak meter updates, and limiter behavior on the audio callback.
 - [ ] Start/stop using Start and Space; verify the first press starts from step 0,

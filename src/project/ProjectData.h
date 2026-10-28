@@ -8,7 +8,7 @@
 
 namespace pocket::project {
 
-constexpr std::uint32_t ProjectFormatVersion = 10;
+constexpr std::uint32_t ProjectFormatVersion = 11;
 // Oldest on-disk version the reader can still load. Older files are upgraded
 // in memory by filling newly added fields with their defaults.
 constexpr std::uint32_t OldestSupportedProjectVersion = 6;

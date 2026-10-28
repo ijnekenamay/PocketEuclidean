@@ -175,12 +175,14 @@ bool parseTrackLine(const std::string& key, std::istringstream& in,
         return true;
     }
     if (field == "turing") {
-        // Format v10 appended the per-track S&H phrase generator.
+        // Format v10 appended the per-track S&H phrase generator; v11 appended
+        // its performance LOCK flag.
         if (version < 10) {
             return false;
         }
         int enabled = 0;
         int useSeed = 0;
+        int locked = 0;
         auto& turing = track.turing;
         if (!(readInt(in, enabled, 0, 1) &&
               readInt(in, turing.clock, 0, TuringClockMax) &&
@@ -196,7 +198,11 @@ bool parseTrackLine(const std::string& key, std::istringstream& in,
               readValue(in, turing.randomSeed))) {
             return false;
         }
+        if (version >= 11 && !readInt(in, locked, 0, 1)) {
+            return false;
+        }
         turing.enabled = enabled != 0;
+        turing.locked = locked != 0;
         turing.useCustomSeed = useSeed != 0;
         return TuringEngine::isValid(turing);
     }
@@ -376,7 +382,7 @@ std::string serializeProject(const ProjectData& project) {
             << int(g.chance) << ' ' << int(g.range) << ' ' << int(g.scale)
             << ' ' << int(g.root) << ' ' << int(g.glide) << ' '
             << int(g.drift) << ' ' << int(g.useCustomSeed) << ' '
-            << g.randomSeed << '\n';
+            << g.randomSeed << ' ' << int(g.locked) << '\n';
         out << prefix << "mix " << int(t.muted) << ' ' << int(t.instrument)
             << ' ' << int(t.volume) << ' ' << t.pan << ' ' << t.reverbSend
             << ' ' << t.delaySend << '\n';

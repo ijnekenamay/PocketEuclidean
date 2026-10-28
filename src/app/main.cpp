@@ -1562,9 +1562,9 @@ void drawTuringVisualizer(SDL_Renderer* renderer,
         case pocket::TuringClockMode::Free: clockName = "FREE"; break;
         }
         const std::string header =
-            std::string("S&H [") + (config.enabled ? "ON" : "OFF") +
-            "]  " + clockName + "  HEAD " + std::to_string(head + 1) + "/" +
-            std::to_string(length);
+            std::string("S&H [") + (config.enabled ? "ON" : "OFF") + "]" +
+            (config.locked ? " LOCK" : "") + "  " + clockName + "  HEAD " +
+            std::to_string(head + 1) + "/" + std::to_string(length);
         drawText(renderer, header, x + 8, y + 4, leftW - 16, 14,
                  config.enabled ? palette.accent : palette.subdued, 1);
         drawTextRight(renderer,
@@ -1810,23 +1810,36 @@ void renderMixerScreen(SDL_Renderer* renderer,
 
     const std::size_t selected =
         std::min(ui.state().selectedTrack, pocket::TrackCount - 1);
-    const auto field = static_cast<std::size_t>(ui.state().mixerField);
-    const char* const fieldNames[] = {"VOLUME", "PAN",    "MUTE",
-                                      "REV",    "DLY",    "MASTER"};
+    const auto field = ui.state().mixerField;
+    const char* const fieldNames[] = {"VOLUME", "PAN",    "MUTE", "LOCK",
+                                      "DICE",   "REV",    "DLY",  "MASTER"};
     const std::size_t fieldCount = sizeof(fieldNames) / sizeof(fieldNames[0]);
+    const auto fieldIndex = static_cast<std::size_t>(field);
 
     const auto focusState = ui.effectiveTrackState(selected);
     std::string focusValue;
     switch (field) {
-    case 0: focusValue = std::to_string(focusState.volume) + "%"; break;
-    case 1: focusValue = formatNumber("%+.2f", focusState.pan); break;
-    case 2: focusValue = focusState.muted ? "ON" : "OFF"; break;
-    case 3:
+    case pocket::ui::MixerField::Volume:
+        focusValue = std::to_string(focusState.volume) + "%";
+        break;
+    case pocket::ui::MixerField::Pan:
+        focusValue = formatNumber("%+.2f", focusState.pan);
+        break;
+    case pocket::ui::MixerField::Mute:
+        focusValue = focusState.muted ? "ON" : "OFF";
+        break;
+    case pocket::ui::MixerField::Lock:
+        focusValue = focusState.turing.locked ? "ON" : "OFF";
+        break;
+    case pocket::ui::MixerField::Dice:
+        focusValue = formatSeed(focusState.turing.randomSeed);
+        break;
+    case pocket::ui::MixerField::ReverbSend:
         focusValue =
             std::to_string(static_cast<int>(focusState.reverbSend * 100.0F)) +
             "%";
         break;
-    case 4:
+    case pocket::ui::MixerField::DelaySend:
         focusValue =
             std::to_string(static_cast<int>(focusState.delaySend * 100.0F)) +
             "%";
@@ -1839,7 +1852,7 @@ void renderMixerScreen(SDL_Renderer* renderer,
 
     const std::string trackBadge = "TRK" + std::to_string(selected + 1);
     const std::string rightContext =
-        std::string(fieldNames[std::min(field, fieldCount - 1)]) + " " +
+        std::string(fieldNames[std::min(fieldIndex, fieldCount - 1)]) + " " +
         focusValue + "  ENTER:NEXT  " + transportStatusFor(sequencer, ui);
     drawHeaderBar(renderer, palette, "MIXER CONSOLE", rightContext, margin, topY,
                   width, headerHeight, std::nullopt, false, trackBadge);
@@ -1860,19 +1873,25 @@ void renderMixerScreen(SDL_Renderer* renderer,
         std::max<std::int32_t>(24, usableWidth * 4 / 100);
     const std::int32_t muteWidth =
         std::max<std::int32_t>(26, usableWidth * 5 / 100);
+    const std::int32_t lockWidth =
+        std::max<std::int32_t>(28, usableWidth * 5 / 100);
+    const std::int32_t diceWidth =
+        std::max<std::int32_t>(26, usableWidth * 6 / 100);
     const std::int32_t muteX = margin + iconWidth + gap;
-    const std::int32_t volBarX = muteX + muteWidth + gap;
-    const std::int32_t volBarW = usableWidth * 26 / 100;
+    const std::int32_t lockX = muteX + muteWidth + gap;
+    const std::int32_t diceX = lockX + lockWidth + gap;
+    const std::int32_t volBarX = diceX + diceWidth + gap;
+    const std::int32_t volBarW = usableWidth * 20 / 100;
     const std::int32_t panBarX = volBarX + volBarW + gap;
-    const std::int32_t panBarW = usableWidth * 11 / 100;
+    const std::int32_t panBarW = usableWidth * 9 / 100;
     const std::int32_t revBarX = panBarX + panBarW + gap;
-    const std::int32_t revBarW = usableWidth * 13 / 100;
+    const std::int32_t revBarW = usableWidth * 11 / 100;
     const std::int32_t dlyBarX = revBarX + revBarW + gap;
-    const std::int32_t dlyBarW = usableWidth * 13 / 100;
+    const std::int32_t dlyBarW = usableWidth * 11 / 100;
     const std::int32_t textX = dlyBarX + dlyBarW + gap;
     const std::int32_t textWidth = margin + usableWidth - textX;
 
-    const bool masterSelected = field == fieldCount - 1;
+    const bool masterSelected = field == pocket::ui::MixerField::MasterVolume;
 
     // Column legend keeps the four fader strips readable without labels on
     // every row.
@@ -1889,6 +1908,7 @@ void renderMixerScreen(SDL_Renderer* renderer,
              legendColor);
 
     std::int32_t y = contentTop + legendHeight + 2;
+    const std::int32_t cellHeight = std::max<std::int32_t>(10, pitch - 6);
     for (std::size_t track = 0; track < pocket::TrackCount; ++track) {
         const auto state = ui.effectiveTrackState(track);
         const bool isSelected = (track == selected) && !masterSelected;
@@ -1901,13 +1921,14 @@ void renderMixerScreen(SDL_Renderer* renderer,
                             state.muted, margin, y, iconWidth, pitch);
 
         // Flat MUTE button: filled while engaged.
-        const bool muteSelected = isSelected && field == 2;
+        const bool muteSelected =
+            isSelected && field == pocket::ui::MixerField::Mute;
         const auto muteFill =
             state.muted ? (isSelected ? palette.accent : palette.primary)
                         : blendColor(palette.background, palette.subdued,
                                      muteSelected ? 0.55F : 0.30F);
         setColor(renderer, muteFill);
-        fillRect(renderer, muteX, y + 3, muteWidth, std::max<std::int32_t>(10, pitch - 6));
+        fillRect(renderer, muteX, y + 3, muteWidth, cellHeight);
         const auto muteText =
             state.muted ? palette.background
                         : (muteSelected ? palette.accent : palette.primary);
@@ -1918,11 +1939,49 @@ void renderMixerScreen(SDL_Renderer* renderer,
                  "M", muteX + (muteWidth - textPixelWidth("M", muteScale)) / 2,
                  y, muteWidth, pitch, muteText, muteScale);
 
+        // LOCK freezes this track's S&H phrase; the phrase keeps looping but
+        // CHANCE and DRIFT stop changing it.
+        const bool lockSelected =
+            isSelected && field == pocket::ui::MixerField::Lock;
+        const bool turingLocked = state.turing.locked;
+        setColor(renderer,
+                 turingLocked
+                     ? (isSelected ? palette.accent : palette.primary)
+                     : blendColor(palette.background, palette.subdued,
+                                  lockSelected ? 0.55F : 0.30F));
+        fillRect(renderer, lockX, y + 3, lockWidth, cellHeight);
+        const auto lockText =
+            turingLocked ? palette.background
+                         : (lockSelected ? palette.accent : palette.primary);
+        const std::int32_t lockScale = std::max<std::int32_t>(
+            1, std::min(rowScale, fitScale("LOCK", lockWidth, pitch)));
+        drawText(renderer, "LOCK",
+                 lockX + (lockWidth - textPixelWidth("LOCK", lockScale)) / 2, y,
+                 lockWidth, pitch, lockText, lockScale);
+
+        // DICE throws a new phrase seed for this track. It is momentary, so it
+        // only brightens while focused instead of holding a state.
+        const bool diceSelected =
+            isSelected && field == pocket::ui::MixerField::Dice;
+        setColor(renderer, blendColor(palette.background, palette.subdued,
+                                      diceSelected ? 0.55F : 0.22F));
+        fillRect(renderer, diceX, y + 3, diceWidth, cellHeight);
+        const std::int32_t diceScale = std::max<std::int32_t>(
+            1, std::min(rowScale, fitScale("DICE", diceWidth, pitch)));
+        drawText(renderer, "DICE",
+                 diceX + (diceWidth - textPixelWidth("DICE", diceScale)) / 2, y,
+                 diceWidth, pitch,
+                 diceSelected
+                     ? palette.accent
+                     : blendColor(palette.background, palette.subdued, 0.85F),
+                 diceScale);
+
         const float volRatio =
             state.muted ? 0.0F : static_cast<float>(state.volume) / 100.0F;
         drawFlatBar(renderer, palette, volBarX, y, volBarW, pitch,
                     BarMode::Unipolar, volRatio,
-                    isSelected && field == 0, !state.muted);
+                    isSelected && field == pocket::ui::MixerField::Volume,
+                    !state.muted);
         if (!state.muted && engine != nullptr) {
             const float peak = std::clamp(engine->trackPeak(track), 0.0F, 1.0F);
             if (peak > 0.0F) {
@@ -1934,13 +1993,16 @@ void renderMixerScreen(SDL_Renderer* renderer,
 
         drawFlatBar(renderer, palette, panBarX, y, panBarW, pitch,
                     BarMode::Bipolar, state.pan,
-                    isSelected && field == 1, !state.muted);
+                    isSelected && field == pocket::ui::MixerField::Pan,
+                    !state.muted);
         drawFlatBar(renderer, palette, revBarX, y, revBarW, pitch,
                     BarMode::Unipolar, state.reverbSend,
-                    isSelected && field == 3, !state.muted);
+                    isSelected && field == pocket::ui::MixerField::ReverbSend,
+                    !state.muted);
         drawFlatBar(renderer, palette, dlyBarX, y, dlyBarW, pitch,
                     BarMode::Unipolar, state.delaySend,
-                    isSelected && field == 4, !state.muted);
+                    isSelected && field == pocket::ui::MixerField::DelaySend,
+                    !state.muted);
 
         std::string text = std::to_string(state.volume) + "%";
         if (state.muted) {
@@ -2237,6 +2299,8 @@ std::vector<ScreenRow> turingRows(const pocket::TrackState& track) {
     return {
         {"ENABLE", config.enabled ? "ON" : "OFF", BarMode::Discrete, 0.0F,
          config.enabled},
+        {"LOCK", config.locked ? "ON" : "OFF", BarMode::Discrete, 0.0F,
+         config.locked},
         {"CLOCK", clockName, BarMode::Unipolar,
          (static_cast<float>(static_cast<int>(config.clock)) + 1.0F) / 3.0F,
          true},
@@ -2576,6 +2640,10 @@ int runSdlApp(const AppOptions& options) {
     const pocket::platform::SystemCapabilities capabilities{
         pocket::app::systemMidiInputAvailable(), true, true, true, true, true};
     pocket::ui::UiController ui(sequencer, capabilities);
+    ui.seedDice(static_cast<std::uint32_t>(SDL_GetTicks64() ^
+                                           static_cast<std::uint64_t>(
+                                               reinterpret_cast<std::uintptr_t>(
+                                                   &ui))));
     ui.resyncFromSequencer();
     const std::string settingsPath =
         (std::filesystem::path(options.dataDir) / "settings.cfg").string();
@@ -3385,7 +3453,7 @@ int runSdlApp(const AppOptions& options) {
                     static_cast<std::size_t>(ui.state().turingField), width,
                     height, vizH + 10, selectedTrack.instrument,
                     selectedTrack.muted, 2, 6, trackBadge,
-                    "UP/DN:ROW  LEFT/RIGHT:COL  A/CTRL+LEFT/RIGHT:VALUE  A:RESEED  Q/E:TRACK");
+                    "UP/DN:ROW  LEFT/RIGHT:COL  A:TOGGLE/DICE  Q/E:TRACK");
                 pocket::ui::LiveTuringState live;
                 const bool turingPlaying = sequencer.isPlaying();
                 if (turingPlaying && audioRunning) {
