@@ -100,7 +100,7 @@ bool parseArguments(int argc, char** argv, AppOptions& options) {
         }
         if (arg == "--screen" && index + 1 < argc) {
             options.startScreen = std::atoi(argv[++index]);
-            if (options.startScreen < 0 || options.startScreen > 5) {
+            if (options.startScreen < 0 || options.startScreen > 6) {
                 return false;
             }
             continue;
@@ -170,7 +170,7 @@ bool parseArguments(int argc, char** argv, AppOptions& options) {
                 << "  --headless        Run without SDL window\n"
                 << "  --width <px>      Initial window width (320-16384)\n"
                 << "  --height <px>     Initial window height (320-16384)\n"
-                << "  --screen <0-5>    Start screen (Main..System)\n"
+                << "  --screen <0-6>    Start screen (Main..Turing..System)\n"
                 << "  --help-modal      Start with the Help modal open\n"
                 << "  --capture <file>  Render one frame to a BMP file and exit\n"
                 << "  --play            Start playback immediately\n"
@@ -1524,6 +1524,143 @@ void drawModulationVisualizer(SDL_Renderer* renderer,
     }
 }
 
+// S&H register + live pitch readout for the TURING screen.
+void drawTuringVisualizer(SDL_Renderer* renderer,
+                          const pocket::ui::ThemePalette& palette,
+                          const pocket::TrackState& track,
+                          const pocket::ui::LiveTuringState& live,
+                          const pocket::TuringDisplayState& fallback,
+                          bool livePlaying,
+                          std::int32_t x,
+                          std::int32_t y,
+                          std::int32_t width,
+                          std::int32_t height) {
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    const auto& config = track.turing;
+    const bool follow = livePlaying && live.valid;
+    const auto& values = follow ? live.values : fallback.values;
+    const std::uint8_t head = follow ? live.head : fallback.head;
+    const std::int8_t semitone =
+        follow ? live.semitone : fallback.semitone;
+    const std::uint8_t length =
+        config.length > 0 ? config.length : 1;
+    const std::int32_t gap = 10;
+    const std::int32_t leftW = width * 68 / 100;
+    const std::int32_t rightW = width - leftW - gap;
+
+    // Left Card: the register itself, one bar per loop slot.
+    {
+        setColor(renderer, blendColor(palette.background, palette.subdued, 0.18F));
+        fillRect(renderer, x, y, leftW, height);
+
+        const char* clockName = "TEMPO";
+        switch (config.clock) {
+        case pocket::TuringClockMode::Tempo: clockName = "TEMPO"; break;
+        case pocket::TuringClockMode::Euclid: clockName = "EUCLID"; break;
+        case pocket::TuringClockMode::Free: clockName = "FREE"; break;
+        }
+        const std::string header =
+            std::string("S&H [") + (config.enabled ? "ON" : "OFF") +
+            "]  " + clockName + "  HEAD " + std::to_string(head + 1) + "/" +
+            std::to_string(length);
+        drawText(renderer, header, x + 8, y + 4, leftW - 16, 14,
+                 config.enabled ? palette.accent : palette.subdued, 1);
+        drawTextRight(renderer,
+                      formatNumber("%.0f%%", static_cast<double>(config.chance)),
+                      x + 8, y + 4, leftW - 16, 14, palette.primary, 1);
+
+        const std::int32_t plotX = x + 8;
+        const std::int32_t plotY = y + 20;
+        const std::int32_t plotW = leftW - 16;
+        const std::int32_t plotH = height - 26;
+        const std::int32_t slotW =
+            std::max<std::int32_t>(2, plotW / static_cast<std::int32_t>(length));
+
+        setColor(renderer, blendColor(palette.background, palette.subdued, 0.45F));
+        fillRect(renderer, plotX, plotY + plotH - 1, plotW, 1);
+
+        for (std::uint8_t step = 0; step < length; ++step) {
+            const auto value = values[step];
+            const std::int32_t barH = std::max<std::int32_t>(
+                2, static_cast<std::int32_t>(
+                       static_cast<std::uint32_t>(value) *
+                       static_cast<std::uint32_t>(plotH) / 255U));
+            const bool isHead = step == head;
+            const auto color =
+                isHead && config.enabled
+                    ? palette.accent
+                    : (config.enabled ? palette.primary : palette.subdued);
+            setColor(renderer, color);
+            fillRect(renderer, plotX + static_cast<std::int32_t>(step) * slotW,
+                     plotY + plotH - barH,
+                     std::max<std::int32_t>(1, slotW - 1), barH);
+        }
+        if (config.enabled) {
+            setColor(renderer, blendColor(palette.background, palette.accent,
+                                          0.35F));
+            fillRect(renderer,
+                     plotX + static_cast<std::int32_t>(head) * slotW, plotY, 1,
+                     plotH);
+        }
+    }
+
+    // Right Card: the semitone offset the register currently produces.
+    {
+        const std::int32_t rx = x + leftW + gap;
+        setColor(renderer, blendColor(palette.background, palette.subdued, 0.18F));
+        fillRect(renderer, rx, y, rightW, height);
+
+        drawText(renderer, "PITCH", rx + 8, y + 4, rightW - 16, 14,
+                 config.enabled ? palette.accent : palette.subdued, 1);
+        const std::string offsetText =
+            config.enabled
+                ? formatNumber("%+.0f ST", static_cast<double>(semitone))
+                : std::string("OFF");
+        drawTextRight(renderer, offsetText, rx + 8, y + 4, rightW - 16, 14,
+                      palette.primary, 1);
+
+        const std::int32_t plotX = rx + 8;
+        const std::int32_t plotY = y + 20;
+        const std::int32_t plotW = rightW - 16;
+        const std::int32_t plotH = height - 26;
+        const std::int32_t midY = plotY + plotH / 2;
+
+        setColor(renderer, blendColor(palette.background, palette.subdued, 0.45F));
+        fillRect(renderer, plotX, midY, plotW, 1);
+        setColor(renderer, blendColor(palette.background, palette.subdued, 0.28F));
+        fillRect(renderer, plotX, plotY, 1, plotH);
+        fillRect(renderer, plotX + plotW - 1, plotY, 1, plotH);
+        for (int octave = -1; octave <= 1; ++octave) {
+            if (octave == 0) {
+                continue;
+            }
+            const std::int32_t ty =
+                midY - static_cast<std::int32_t>(
+                           static_cast<float>(octave * 12) / 24.0F *
+                           static_cast<float>(plotH) / 2.0F);
+            setColor(renderer,
+                     blendColor(palette.background, palette.subdued, 0.28F));
+            fillRect(renderer, plotX, ty, plotW, 1);
+        }
+        if (config.enabled) {
+            const std::int32_t markerY =
+                midY - static_cast<std::int32_t>(
+                           static_cast<float>(semitone) / 24.0F *
+                           static_cast<float>(plotH) / 2.0F);
+            setColor(renderer, palette.accent);
+            fillRect(renderer, plotX, markerY - 1, plotW, 3);
+        }
+
+        const std::string scaleText =
+            std::string(pocket::TuringScaleMap::name(config.scale)) + " " +
+            pocket::TuringScaleMap::noteName(config.root);
+        drawText(renderer, scaleText, rx + 8, y + height - 16, rightW - 16, 14,
+                 palette.primary, 1);
+    }
+}
+
 void renderRows(SDL_Renderer* renderer,
                 const pocket::ui::ThemePalette& palette,
                 const std::string& title,
@@ -2061,6 +2198,67 @@ std::vector<ScreenRow> modulationRows(const pocket::TrackState& track) {
              BarMode::Discrete, 0.0F, jitter.useCustomSeed},
             {"SEED", formatSeed(jitter.randomSeed), BarMode::None, 0.0F,
              false}};
+}
+
+std::vector<ScreenRow> turingRows(const pocket::TrackState& track) {
+    using namespace pocket;
+    const auto& config = track.turing;
+    const char* clockName = "TEMPO";
+    switch (config.clock) {
+    case TuringClockMode::Tempo: clockName = "TEMPO"; break;
+    case TuringClockMode::Euclid: clockName = "EUCLID"; break;
+    case TuringClockMode::Free: clockName = "FREE"; break;
+    }
+    static const char* const tempoRates[] = {"1/16", "1/8", "1/4", "1/2",
+                                             "1/1"};
+    static const char* const euclidRates[] = {"x1", "x2", "x3", "x4", "x6"};
+    static const char* const freeRates[] = {"0.5HZ", "1HZ", "2HZ", "4HZ",
+                                            "8HZ"};
+    const auto rateIndex = static_cast<std::size_t>(config.rate);
+    const char* rateText = "?";
+    if (rateIndex < 5) {
+        switch (config.clock) {
+        case TuringClockMode::Tempo: rateText = tempoRates[rateIndex]; break;
+        case TuringClockMode::Euclid: rateText = euclidRates[rateIndex]; break;
+        case TuringClockMode::Free: rateText = freeRates[rateIndex]; break;
+        }
+    }
+    const float lengthRatio =
+        static_cast<float>(config.length) / 32.0F;
+    const float chanceRatio = static_cast<float>(config.chance) / 100.0F;
+    const float rangeRatio = static_cast<float>(config.range) / 24.0F;
+    const float scaleRatio =
+        (static_cast<float>(static_cast<int>(config.scale)) + 1.0F) /
+        static_cast<float>(static_cast<int>(TuringScale::Count));
+    const float rootRatio = static_cast<float>(config.root) / 11.0F;
+    const float glideRatio = static_cast<float>(config.glide) / 100.0F;
+    const float driftRatio = static_cast<float>(config.drift) / 100.0F;
+
+    return {
+        {"ENABLE", config.enabled ? "ON" : "OFF", BarMode::Discrete, 0.0F,
+         config.enabled},
+        {"CLOCK", clockName, BarMode::Unipolar,
+         (static_cast<float>(static_cast<int>(config.clock)) + 1.0F) / 3.0F,
+         true},
+        {"RATE", rateText, BarMode::Unipolar,
+         static_cast<float>(rateIndex + 1) / 5.0F, true},
+        {"LENGTH", std::to_string(config.length) + " STEP",
+         BarMode::Unipolar, lengthRatio, true},
+        {"CHANCE", std::to_string(config.chance) + "%", BarMode::Unipolar,
+         chanceRatio, true},
+        {"RANGE", "+-" + std::to_string(config.range), BarMode::Unipolar,
+         rangeRatio, true},
+        {"SCALE", TuringScaleMap::name(config.scale), BarMode::Unipolar,
+         scaleRatio, true},
+        {"ROOT", TuringScaleMap::noteName(config.root), BarMode::Unipolar,
+         rootRatio, true},
+        {"GLIDE", std::to_string(config.glide) + "%", BarMode::Unipolar,
+         glideRatio, config.glide > 0},
+        {"DRIFT", std::to_string(config.drift) + "%", BarMode::Unipolar,
+         driftRatio, config.drift > 0},
+        {"CST SEED", config.useCustomSeed ? "ON" : "OFF", BarMode::Discrete,
+         0.0F, config.useCustomSeed},
+        {"SEED", formatSeed(config.randomSeed), BarMode::None, 0.0F, false}};
 }
 
 std::string uppercaseAscii(std::string text) {
@@ -2625,7 +2823,8 @@ int runSdlApp(const AppOptions& options) {
     const auto canDeferConfirm = [&]() {
         return ui.state().modal == pocket::ui::Modal::None &&
                (ui.state().screen == pocket::ui::Screen::Sound ||
-                ui.state().screen == pocket::ui::Screen::Modulation);
+                ui.state().screen == pocket::ui::Screen::Modulation ||
+                ui.state().screen == pocket::ui::Screen::Turing);
     };
     const auto handleControl = [&](pocket::ui::ControllerControl control,
                                    bool pressed) {
@@ -3175,6 +3374,27 @@ int runSdlApp(const AppOptions& options) {
                 drawModulationVisualizer(renderer, *palette, selectedTrack, live,
                                          modPlaying, margin, bannerTop, bannerW,
                                          vizH);
+                break;
+            }
+            case pocket::ui::Screen::Turing: {
+                const std::int32_t vizH =
+                    std::max<std::int32_t>(84, height * 14 / 100);
+                renderRows(
+                    renderer, *palette, "TURING", transportStatus,
+                    turingRows(selectedTrack),
+                    static_cast<std::size_t>(ui.state().turingField), width,
+                    height, vizH + 10, selectedTrack.instrument,
+                    selectedTrack.muted, 2, 6, trackBadge,
+                    "UP/DN:ROW  LEFT/RIGHT:COL  A/CTRL+LEFT/RIGHT:VALUE  A:RESEED  Q/E:TRACK");
+                pocket::ui::LiveTuringState live;
+                const bool turingPlaying = sequencer.isPlaying();
+                if (turingPlaying && audioRunning) {
+                    live = engine.modulation().readTuring(trackIndex);
+                }
+                const auto display = sequencer.turingDisplay(trackIndex);
+                drawTuringVisualizer(renderer, *palette, selectedTrack, live,
+                                     display, turingPlaying, margin, bannerTop,
+                                     bannerW, vizH);
                 break;
             }
             case pocket::ui::Screen::System:

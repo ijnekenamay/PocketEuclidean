@@ -22,6 +22,7 @@ enum class Screen : std::uint8_t {
     Sound,
     Mixer,
     Modulation,
+    Turing,
     System
 };
 
@@ -39,6 +40,21 @@ enum class ModulationField : std::uint8_t {
     JitterShiftRange,
     JitterCustomSeed,
     JitterSeed
+};
+
+enum class TuringField : std::uint8_t {
+    Enabled,
+    Clock,
+    Rate,
+    Length,
+    Chance,
+    Range,
+    Scale,
+    Root,
+    Glide,
+    Drift,
+    CustomSeed,
+    Seed
 };
 
 enum class MixerField : std::uint8_t {
@@ -143,6 +159,7 @@ struct UiState {
     EditField editField = EditField::Length;
     SoundField soundField = SoundField::Attack;
     ModulationField modulationField = ModulationField::Enabled;
+    TuringField turingField = TuringField::Enabled;
     MixerField mixerField = MixerField::Volume;
     platform::SettingsCategory systemCategory =
         platform::SettingsCategory::ClockAndTransport;
@@ -267,6 +284,7 @@ private:
     void dispatchSound(ActionEvent event);
     void dispatchMixer(ActionEvent event);
     void dispatchModulation(ActionEvent event);
+    void dispatchTuring(ActionEvent event);
     void dispatchSystem(ActionEvent event);
     void switchScreen(int direction) noexcept;
     void selectTrack(int direction) noexcept;
@@ -275,6 +293,8 @@ private:
     void changeSoundValue(int direction, bool fine);
     void moveSoundColumn(int direction) noexcept;
     void moveModulationColumn(int direction) noexcept;
+    void moveTuringColumn(int direction) noexcept;
+    void changeTuringValue(int direction, bool fine);
     TrackAudioSettings audioSettings(std::size_t track) const noexcept;
     bool postAudioParameter(audio::AudioParameter parameter,
                             std::size_t track,

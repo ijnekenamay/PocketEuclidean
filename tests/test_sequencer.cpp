@@ -1984,6 +1984,20 @@ void testProjectStoreRoundTrip() {
     jitter.useCustomSeed = true;
     jitter.randomSeed = 4242;
     source.setJitter(7, jitter);
+    TuringConfig turing;
+    turing.enabled = true;
+    turing.clock = TuringClockMode::Euclid;
+    turing.rate = TuringRate::Quarter;
+    turing.length = 12;
+    turing.chance = 35;
+    turing.range = 9;
+    turing.scale = TuringScale::Dorian;
+    turing.root = 5;
+    turing.glide = 40;
+    turing.drift = 25;
+    turing.useCustomSeed = true;
+    turing.randomSeed = 777;
+    expect(source.setTuring(7, turing), "test Turing settings are valid");
     source.setReverbSend(3, 0.45F);
     source.setDelaySend(3, 0.65F);
 
@@ -2021,6 +2035,17 @@ void testProjectStoreRoundTrip() {
     expect(restored.track(7).jitter.randomSeed == 4242 &&
                restored.track(7).jitter.mode == JitterMode::Shift,
            "jitter restored");
+    const auto& restoredTuring = restored.track(7).turing;
+    expect(restoredTuring.enabled &&
+               restoredTuring.clock == TuringClockMode::Euclid &&
+               restoredTuring.rate == TuringRate::Quarter &&
+               restoredTuring.length == 12 && restoredTuring.chance == 35 &&
+               restoredTuring.range == 9 &&
+               restoredTuring.scale == TuringScale::Dorian &&
+               restoredTuring.root == 5 && restoredTuring.glide == 40 &&
+               restoredTuring.drift == 25 && restoredTuring.useCustomSeed &&
+               restoredTuring.randomSeed == 777,
+           "Turing configuration restored");
     expect(restored.track(3).rhythm.length == ExamplePresetRhythms[3].length &&
                restored.track(3).rhythm.fill == ExamplePresetRhythms[3].fill,
            "rhythm restored");
@@ -2058,6 +2083,9 @@ void testProjectStoreRoundTrip() {
     expect(legacy.tracks[0].reverbSend == 0.0F &&
                legacy.tracks[0].delaySend == 0.0F,
            "version 6 projects load with zero effect sends");
+    expect(!legacy.tracks[0].turing.enabled &&
+               legacy.tracks[0].turing.length == 8,
+           "version 6 projects load with the Turing machine disabled");
 
     project::ProjectData v8Legacy;
     expect(project::parseProject(
@@ -2441,6 +2469,155 @@ void testReverbEffect() {
 
 } // namespace
 
+void testTuringMachine() {
+    using namespace pocket;
+    std::cout << "testTuringMachine...\n";
+
+    expect(TuringScaleMap::semitones(TuringScale::Major, 0) == 0 &&
+               TuringScaleMap::semitones(TuringScale::Major, 1) == 2 &&
+               TuringScaleMap::semitones(TuringScale::Major, 7) == 12 &&
+               TuringScaleMap::semitones(TuringScale::Major, -1) == -1,
+           "major scale degrees map across octave boundaries");
+    expect(TuringScaleMap::semitones(TuringScale::Chromatic, -5) == -5 &&
+               TuringScaleMap::semitones(TuringScale::MinorPentatonic, 5) ==
+                   12,
+           "chromatic and pentatonic scales map negative degrees");
+
+    TuringConfig config;
+    config.enabled = true;
+    config.clock = TuringClockMode::Tempo;
+    config.rate = TuringRate::Sixteenth;
+    config.length = 8;
+    config.chance = 0;
+    config.range = 12;
+    config.scale = TuringScale::Chromatic;
+    config.root = 0;
+    config.useCustomSeed = true;
+    config.randomSeed = 12345;
+    expect(TuringEngine::isValid(config), "default Turing config is valid");
+    auto invalid = config;
+    invalid.length = 1;
+    expect(!TuringEngine::isValid(invalid), "reject a one-step Turing loop");
+    invalid = config;
+    invalid.chance = 101;
+    expect(!TuringEngine::isValid(invalid), "reject chance above 100 percent");
+    invalid = config;
+    invalid.range = 0;
+    expect(!TuringEngine::isValid(invalid), "reject a zero Turing range");
+    expect(TuringEngine::ticksPerStep(TuringRate::Quarter) == 4 &&
+               TuringEngine::euclidTriggersPerStep(TuringRate::Eighth) == 2 &&
+               TuringEngine::freeRateHz(TuringRate::Whole) == 8.0,
+           "Turing clock rate tables follow the selected sync mode");
+
+    TuringEngine first;
+    TuringEngine second;
+    std::array<std::int8_t, 8> loopA{};
+    std::array<std::int8_t, 8> loopB{};
+    for (std::size_t tick = 0; tick < loopA.size(); ++tick) {
+        const auto a = first.process(0, config, true, tick, 0.125);
+        const auto b = second.process(0, config, true, tick, 0.125);
+        expect(a.has_value() && b.has_value(),
+               "Turing engine produces a pitch for every clock");
+        loopA[tick] = a.value_or(0);
+        loopB[tick] = b.value_or(0);
+    }
+    expect(loopA == loopB, "identical seeds produce identical phrases");
+    for (std::size_t tick = 0; tick < loopA.size(); ++tick) {
+        const auto next =
+            first.process(0, config, true, tick + loopA.size(), 0.125);
+        expect(next.has_value() && *next == loopA[tick],
+               "zero chance locks the register into an exact loop");
+    }
+
+    TuringEngine evolving;
+    const auto beforeEvolution = evolving.display(0, config).values;
+    config.chance = 100;
+    for (std::size_t tick = 0; tick < 8; ++tick) {
+        (void)evolving.process(0, config, true, tick, 0.125);
+    }
+    expect(evolving.display(0, config).values != beforeEvolution,
+           "100 percent chance rewrites the register every step");
+
+    TuringConfig euclid = config;
+    euclid.chance = 0;
+    euclid.clock = TuringClockMode::Euclid;
+    euclid.rate = TuringRate::Sixteenth;
+    TuringEngine euclidEngine;
+    for (std::size_t tick = 0; tick < 4; ++tick) {
+        (void)euclidEngine.process(0, euclid, false, tick, 0.125);
+    }
+    expect(euclidEngine.display(0, euclid).head == 0,
+           "Euclidean clock ignores ticks without a track trigger");
+    (void)euclidEngine.process(0, euclid, true, 4, 0.125);
+    expect(euclidEngine.display(0, euclid).head == 1,
+           "Euclidean clock advances on a track trigger");
+
+    TuringConfig freeConfig = config;
+    freeConfig.clock = TuringClockMode::Free;
+    freeConfig.rate = TuringRate::Whole;
+    TuringEngine freeEngine;
+    (void)freeEngine.process(0, freeConfig, false, 0, 0.1);
+    expect(freeEngine.display(0, freeConfig).head == 0,
+           "free clock waits for its own period");
+    (void)freeEngine.process(0, freeConfig, false, 1, 0.1);
+    expect(freeEngine.display(0, freeConfig).head == 1,
+           "free clock advances independently of the transport tick");
+
+    Sequencer sequencer;
+    expect(sequencer.setTempo(120.0), "configure Turing sequencer tempo");
+    TuringConfig trackConfig = config;
+    trackConfig.clock = TuringClockMode::Tempo;
+    trackConfig.chance = 0;
+    trackConfig.length = 4;
+    expect(sequencer.setTuring(0, trackConfig),
+           "assign a Turing configuration to a track");
+    expect(!sequencer.setTuring(TrackCount, trackConfig),
+           "reject Turing assignment outside the track range");
+    const auto beforeReseed = sequencer.turingDisplay(0).values;
+    expect(sequencer.reseedTuring(0) &&
+               sequencer.track(0).turingReseedRevision == 1 &&
+               sequencer.turingDisplay(0).values != beforeReseed,
+           "reseed rewrites the register and bumps the audio revision");
+    sequencer.start();
+    std::array<std::int8_t, 4> phrase{};
+    for (std::size_t tick = 0; tick < phrase.size(); ++tick) {
+        phrase[tick] = sequencer.tick().pitchOffsets[0];
+    }
+    for (std::size_t tick = 0; tick < phrase.size(); ++tick) {
+        const auto result = sequencer.tick();
+        expect(result.valid && result.pitchOffsets[0] == phrase[tick],
+               "sequencer repeats the locked Turing phrase");
+    }
+    auto silent = trackConfig;
+    silent.enabled = false;
+    expect(sequencer.setTuring(0, silent), "disable the Turing generator");
+    expect(sequencer.tick().pitchOffsets[0] == 0,
+           "disabled Turing leaves the track at its base pitch");
+
+    // A fresh transport must already carry the phrase pitch even when the
+    // first tick is a rest: EUCLID and FREE clocks do not advance immediately.
+    TuringConfig restFirstTuring = config;
+    restFirstTuring.clock = TuringClockMode::Euclid;
+    restFirstTuring.rate = TuringRate::Sixteenth;
+    restFirstTuring.length = 4;
+    restFirstTuring.chance = 0;
+    restFirstTuring.scale = TuringScale::Chromatic;
+    restFirstTuring.range = 12;
+    restFirstTuring.useCustomSeed = true;
+    restFirstTuring.randomSeed = 777;
+    const EuclideanConfig restFirstRhythm{4, 1, 1};
+    expect(!EuclideanGenerator::isActive(restFirstRhythm, 0),
+           "rest-first rhythm really starts on a rest");
+    expect(sequencer.setRhythm(0, restFirstRhythm) &&
+               sequencer.setTuring(0, restFirstTuring),
+           "configure a rest-first Euclidean Turing track");
+    sequencer.reset();
+    const auto expectedFirstPitch = sequencer.turingDisplay(0).semitone;
+    const auto firstTick = sequencer.tick();
+    expect(firstTick.valid && firstTick.pitchOffsets[0] == expectedFirstPitch,
+           "reset preloads the Turing head for the first note");
+}
+
 int main() {
     testSettingsStore();
     testSettingsStoreMigration();
@@ -2457,6 +2634,7 @@ int main() {
     testSequencerModulationPreservesMasterPhase();
     testJitterModesAndDeterminism();
     testSequencerJitterTransportAndProjectState();
+    testTuringMachine();
     testTrackMixerSettingsAndMeters();
     testAudioMixerProcessingAndMeterBridge();
     testSamplerVoicePool();

@@ -10,6 +10,7 @@ namespace {
 constexpr std::size_t EditFieldCount = 6;
 constexpr std::size_t SoundFieldCount = 14;
 constexpr std::size_t ModulationFieldCount = 13;
+constexpr std::size_t TuringFieldCount = 12;
 constexpr std::size_t MixerFieldCount = 6;
 constexpr std::size_t SettingsCategoryCount = 7;
 constexpr std::size_t ProjectMenuItemCount = 5;
@@ -17,6 +18,7 @@ constexpr std::size_t ProjectMenuItemCount = 5;
 // values used by the SOUND and MODULATION renderers.
 constexpr int SoundLeftColumnRows = 7;
 constexpr int ModulationLeftColumnRows = 6;
+constexpr int TuringLeftColumnRows = 6;
 
 int adjacentColumnIndex(int index, int leftRows, int total,
                         int direction) noexcept {
@@ -103,6 +105,9 @@ void UiController::dispatch(ActionEvent event) {
         break;
     case Screen::Modulation:
         dispatchModulation(event);
+        break;
+    case Screen::Turing:
+        dispatchTuring(event);
         break;
     case Screen::System:
         dispatchSystem(event);
@@ -356,6 +361,136 @@ void UiController::moveModulationColumn(int direction) noexcept {
     state_.modulationField = static_cast<ModulationField>(adjacentColumnIndex(
         static_cast<int>(state_.modulationField), ModulationLeftColumnRows,
         static_cast<int>(ModulationFieldCount), direction));
+}
+
+void UiController::moveTuringColumn(int direction) noexcept {
+    state_.turingField = static_cast<TuringField>(adjacentColumnIndex(
+        static_cast<int>(state_.turingField), TuringLeftColumnRows,
+        static_cast<int>(TuringFieldCount), direction));
+}
+
+void UiController::changeTuringValue(int direction, bool fine) {
+    auto config = sequencer_.track(state_.selectedTrack).turing;
+    const int step = fine ? 1 : 5;
+    switch (state_.turingField) {
+    case TuringField::Enabled:
+        config.enabled = !config.enabled;
+        break;
+    case TuringField::Clock:
+        config.clock = static_cast<TuringClockMode>(wrapIndex(
+            static_cast<int>(config.clock) + direction, 3));
+        break;
+    case TuringField::Rate:
+        config.rate = static_cast<TuringRate>(wrapIndex(
+            static_cast<int>(config.rate) + direction,
+            static_cast<std::size_t>(TuringRate::Count)));
+        break;
+    case TuringField::Length: {
+        const int length = static_cast<int>(config.length) + direction;
+        config.length = static_cast<std::uint8_t>(
+            length < 2 ? 2 : length > 32 ? 32 : length);
+        break;
+    }
+    case TuringField::Chance: {
+        const int chance = static_cast<int>(config.chance) + direction * step;
+        config.chance = static_cast<std::uint8_t>(
+            chance < 0 ? 0 : chance > 100 ? 100 : chance);
+        break;
+    }
+    case TuringField::Range: {
+        const int range = static_cast<int>(config.range) + direction;
+        config.range = static_cast<std::uint8_t>(
+            range < 1 ? 1 : range > 24 ? 24 : range);
+        break;
+    }
+    case TuringField::Scale:
+        config.scale = static_cast<TuringScale>(wrapIndex(
+            static_cast<int>(config.scale) + direction,
+            static_cast<std::size_t>(TuringScale::Count)));
+        break;
+    case TuringField::Root:
+        config.root = static_cast<std::uint8_t>(
+            wrapIndex(static_cast<int>(config.root) + direction, 12));
+        break;
+    case TuringField::Glide: {
+        const int glide = static_cast<int>(config.glide) + direction * step;
+        config.glide = static_cast<std::uint8_t>(
+            glide < 0 ? 0 : glide > 100 ? 100 : glide);
+        break;
+    }
+    case TuringField::Drift: {
+        const int drift = static_cast<int>(config.drift) + direction * step;
+        config.drift = static_cast<std::uint8_t>(
+            drift < 0 ? 0 : drift > 100 ? 100 : drift);
+        break;
+    }
+    case TuringField::CustomSeed:
+        config.useCustomSeed = !config.useCustomSeed;
+        break;
+    case TuringField::Seed: {
+        const auto seed = static_cast<std::int64_t>(config.randomSeed) +
+                          direction;
+        config.randomSeed = static_cast<std::uint32_t>(
+            seed < 0 ? 0 : seed > 65535 ? 65535 : seed);
+        break;
+    }
+    }
+    if (sequencer_.setTuring(state_.selectedTrack, config)) {
+        state_.modified = true;
+    }
+}
+
+void UiController::dispatchTuring(ActionEvent event) {
+    switch (event.action) {
+    case Action::NavUp:
+        state_.turingField = static_cast<TuringField>(
+            wrapIndex(static_cast<int>(state_.turingField) - 1,
+                      TuringFieldCount));
+        break;
+    case Action::NavDown:
+        state_.turingField = static_cast<TuringField>(
+            wrapIndex(static_cast<int>(state_.turingField) + 1,
+                      TuringFieldCount));
+        break;
+    case Action::NavLeft:
+    case Action::NavRight: {
+        const int direction = event.action == Action::NavRight ? 1 : -1;
+        if (event.edit) {
+            changeTuringValue(direction, event.fine || state_.fineAdjust);
+        } else {
+            moveTuringColumn(direction);
+        }
+        break;
+    }
+    case Action::Confirm:
+        // Confirm on the two switches toggles them. On every other row it is
+        // a performance gesture that rewrites the S&H register.
+        if (state_.turingField == TuringField::Enabled ||
+            state_.turingField == TuringField::CustomSeed) {
+            changeTuringValue(1, false);
+        } else {
+            sequencer_.reseedTuring(state_.selectedTrack);
+        }
+        break;
+    case Action::Back:
+        state_.screen = Screen::Modulation;
+        break;
+    case Action::ScreenPrevious:
+        switchScreen(-1);
+        break;
+    case Action::ScreenNext:
+        switchScreen(1);
+        break;
+    case Action::PlayStop:
+        if (sequencer_.isPlaying()) {
+            sequencer_.stop();
+        } else {
+            sequencer_.start();
+        }
+        break;
+    default:
+        break;
+    }
 }
 
 void UiController::changeSoundValue(int direction, bool fine) {
@@ -926,7 +1061,7 @@ void UiController::dispatchSystem(ActionEvent event) {
 
 void UiController::switchScreen(int direction) noexcept {
     state_.screen =
-        static_cast<Screen>(wrapIndex(static_cast<int>(state_.screen) + direction, 6));
+        static_cast<Screen>(wrapIndex(static_cast<int>(state_.screen) + direction, 7));
 }
 
 void UiController::selectTrack(int direction) noexcept {

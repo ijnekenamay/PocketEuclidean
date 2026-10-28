@@ -42,6 +42,10 @@ public:
 
     bool trigger(std::size_t track,
                  float playbackRate = 1.0F) noexcept;
+    // Applies a new playback rate to voices already sounding on the track.
+    // Used by the Turing GLIDE smoothing while a note is held.
+    bool setTrackPlaybackRate(std::size_t track,
+                              float playbackRate) noexcept;
     bool renderTrack(std::size_t track,
                      float* monoOutput,
                      std::size_t frameCount,

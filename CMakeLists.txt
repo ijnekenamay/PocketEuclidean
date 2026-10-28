@@ -34,6 +34,7 @@ add_library(pocket_euclidean
     src/sequencer/MidiClock.cpp
     src/sequencer/Modulation.cpp
     src/sequencer/Sequencer.cpp
+    src/sequencer/Turing.cpp
     src/platform/SystemSettings.cpp
     src/platform/SettingsStore.cpp
     src/project/ProjectStore.cpp

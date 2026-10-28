@@ -3,9 +3,9 @@
 The UI currently has a platform-independent logical input mapper and a
 testable screen-state controller. SDL keyboard/controller events are
 translated to the enums in `src/ui/InputMapping.h`; screen behavior dispatches
-only logical `ActionEvent` values. The six primary screens cycle
-MAIN → EDIT → SOUND → MIXER → MODULATION → SYSTEM. The SDL2 adapter and the
-six rendered screens live in `src/app/main.cpp`; this document remains the
+only logical `ActionEvent` values. The seven primary screens cycle
+MAIN → EDIT → SOUND → MIXER → MODULATION → TURING → SYSTEM. The SDL2 adapter and
+the seven rendered screens live in `src/app/main.cpp`; this document remains the
 authoritative description of logical control behavior.
 
 Visual design requirements for the renderer are in
@@ -17,8 +17,8 @@ illumination must be driven by the sequencer event timeline, not UI frame count.
 | Keyboard | Logical action |
 | --- | --- |
 | Up / Down | Select a row, track, or category |
-| Left / Right | Move between the two parameter columns on SOUND/MODULATION; adjust the focused value on EDIT/MIXER/SYSTEM |
-| Ctrl+Left / Right | Adjust the focused SOUND/MODULATION value (tracker-style edit modifier) |
+| Left / Right | Move between the two parameter columns on SOUND/MODULATION/TURING; adjust the focused value on EDIT/MIXER/SYSTEM |
+| Ctrl+Left / Right | Adjust the focused SOUND/MODULATION/TURING value (tracker-style edit modifier) |
 | Enter | Confirm / open EDIT from MAIN |
 | Escape | Back / close the topmost modal |
 | Space | Start/stop |
@@ -56,7 +56,7 @@ the same.
 | SDL GameController logical control | Logical action |
 | --- | --- |
 | D-pad | Navigate |
-| A | Confirm; hold with Left/Right to adjust a SOUND/MODULATION value |
+| A | Confirm; hold with Left/Right to adjust a SOUND/MODULATION/TURING value |
 | B | Back |
 | X / Y | Mute / Help |
 | L1 / R1 | Previous / next track |
@@ -160,6 +160,24 @@ persist raw SDL or joystick button numbers in the shared profile.
   seed value is shown as eight hex digits so all 32 bits stay visible on one
   line. The data model supports four LFOs per track, while the initial UI
   exposes only the first.
+- TURING: Up/Down selects the selected track's sample-and-hold phrase fields:
+  ENABLE, CLOCK, RATE, LENGTH, CHANCE, RANGE, SCALE, ROOT, GLIDE, DRIFT,
+  CST SEED, and SEED. Left/Right moves between the two columns; hold Ctrl
+  (keyboard) or A (gamepad) while pressing Left/Right to change a value.
+  CLOCK chooses TEMPO (16th-note transport ticks), EUCLID (the track's
+  post-jitter Euclidean triggers), or FREE (an internal Hz clock that ignores
+  tempo). RATE is interpreted per clock mode: musical divisions for TEMPO,
+  trigger multiples for EUCLID, and 0.5–8 Hz for FREE. LENGTH is 2–32 steps,
+  CHANCE is 0–100% and controls how often the byte under the head is
+  re-randomised (0% locks an exact loop, 100% changes every step), RANGE is
+  ±1–24 scale degrees, and SCALE/ROOT quantise the register to a musical key.
+  GLIDE is 0–100% portamento (up to 0.5 s) applied to held sampler and synth
+  voices; DRIFT slowly transposes the whole phrase by up to one octave across
+  loop passes. SEED is eight hex digits and CST SEED selects the deterministic
+  seed. A quick Confirm/A tap reseeds the register as a performance gesture;
+  on ENABLE and CST SEED it toggles the switch instead. The left card draws the
+  live 32-byte register with the moving head, and the right card shows the
+  current semitone offset. The `TRKn` badge names the edited track.
 - SYSTEM: Up/Down navigates Clock/Transport, MIDI, Audio, Input/Controls,
   Display, Project/Storage, and About/Diagnostics categories. Settings are
   persisted in the versioned v4 system file, separately from project data. In
@@ -210,22 +228,28 @@ comma-separated list of `key[:action]`, where key is `up`, `down`, `left`,
 - [ ] Edit length, fill, offset, instrument, and volume with keyboard and pad.
 - [ ] Adjust per-track SOUND Attack/Decay values with coarse and fine input;
   verify settings persist independently across all eight tracks.
-- [ ] On SOUND and MODULATION, move between the two columns with Left/Right and
-  verify the value does not change; hold A (pad) or Ctrl (keyboard) with
-  Left/Right and verify the value changes without leaving the focused row.
+- [ ] On SOUND, MODULATION, and TURING, move between the two columns with
+  Left/Right and verify the value does not change; hold A (pad) or Ctrl
+  (keyboard) with Left/Right and verify the value changes without leaving the
+  focused row.
 - [ ] Verify the `TRKn` header badge matches the selected track on MAIN, EDIT,
-  SOUND, MIXER, and MODULATION.
+  SOUND, MIXER, MODULATION, and TURING.
 - [ ] Enable the per-track low-pass in SOUND, adjust cutoff, and verify
   bypass/filtered behavior and independent settings for all tracks.
 - [ ] Reduce length below fill and verify fill clamps immediately.
-- [ ] Switch MAIN → EDIT → SOUND → MIXER → MODULATION → SYSTEM → MAIN and confirm
-  track selection persists.
-- [ ] Switch across all six primary screens and inspect all seven system
+- [ ] Switch MAIN → EDIT → SOUND → MIXER → MODULATION → TURING → SYSTEM → MAIN
+  and confirm track selection persists.
+- [ ] Switch across all seven primary screens and inspect all seven system
   settings categories.
 - [ ] Modulate each rhythm destination and verify base values remain unchanged,
   effective values clamp/quantize, and master transport phase is preserved.
 - [ ] Verify jitter Enable and Intensity are directly reachable in MODULATION,
   and that Off reproduces the stored Euclidean pattern exactly.
+- [ ] On TURING, enable the generator and verify TEMPO, EUCLID, and FREE clocks
+  advance the register at their own rates. Confirm that CHANCE 0% loops the
+  phrase exactly, 100% rewrites every step, and a Confirm tap reseeds the
+  register without dirtying the project. Verify GLIDE is audible on held notes
+  and that DRIFT only moves the phrase at loop boundaries.
 - [ ] With jitter enabled, verify MAIN and EDIT step bars follow the live
   post-jitter triggers and the `JIT` indicator appears when the pattern differs.
 - [ ] Verify jitter-inserted or shifted-in triggers render as half-width,

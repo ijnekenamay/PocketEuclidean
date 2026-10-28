@@ -57,6 +57,14 @@ void Sequencer::reset() noexcept {
         jitterConfigs[i] = tracks_[i].jitter;
     }
     jitter_.reset(jitterConfigs);
+    // Keep the S&H registers so a live reseed survives stop/start, but rewind
+    // the loop and drift so every take begins on step zero.
+    turing_.resetTransport();
+    for (std::size_t i = 0; i < tracks_.size(); ++i) {
+        // Re-read the head so the first note already carries the phrase's
+        // pitch even in EUCLID/FREE modes, where the next clock may be late.
+        turing_.configure(i, tracks_[i].turing);
+    }
 }
 
 const TrackState& Sequencer::track(std::size_t index) const {
@@ -106,6 +114,46 @@ bool Sequencer::setJitter(std::size_t trackIndex,
         jitter_.invalidate(trackIndex);
     }
     return true;
+}
+
+bool Sequencer::setTuring(std::size_t trackIndex,
+                          const TuringConfig& config) noexcept {
+    if (trackIndex >= TrackCount || !TuringEngine::isValid(config)) {
+        return false;
+    }
+    auto& current = tracks_[trackIndex].turing;
+    const bool seedChanged = current.useCustomSeed != config.useCustomSeed ||
+                             current.randomSeed != config.randomSeed;
+    current = config;
+    if (seedChanged) {
+        turing_.resetTrack(trackIndex, config);
+    } else {
+        turing_.configure(trackIndex, config);
+    }
+    return true;
+}
+
+bool Sequencer::reseedTuring(std::size_t trackIndex) noexcept {
+    if (trackIndex >= TrackCount) {
+        return false;
+    }
+    turing_.reseed(trackIndex, tracks_[trackIndex].turing);
+    ++tracks_[trackIndex].turingReseedRevision;
+    return true;
+}
+
+void Sequencer::reseedAllTuring() noexcept {
+    for (std::size_t track = 0; track < TrackCount; ++track) {
+        (void)reseedTuring(track);
+    }
+}
+
+TuringDisplayState Sequencer::turingDisplay(
+    std::size_t trackIndex) const noexcept {
+    if (trackIndex >= TrackCount) {
+        return {};
+    }
+    return turing_.display(trackIndex, tracks_[trackIndex].turing);
 }
 
 std::uint32_t Sequencer::jitterEventsMask(std::size_t trackIndex,
@@ -227,6 +275,10 @@ TickResult Sequencer::tick() {
             result.valid = false;
             return result;
         }
+        if (!TuringEngine::isValid(trackState.turing)) {
+            result.valid = false;
+            return result;
+        }
     }
 
     result.masterTickPosition = masterTickPosition_++;
@@ -258,6 +310,14 @@ TickResult Sequencer::tick() {
             return result;
         }
         result.triggered[i] = *trigger;
+        const auto pitch = turing_.process(
+            i, trackState.turing, *trigger, result.masterTickPosition,
+            secondsPerTick);
+        if (!pitch) {
+            result.valid = false;
+            return result;
+        }
+        result.pitchOffsets[i] = *pitch;
         trackState.position = static_cast<std::uint8_t>(
             (trackState.position + 1) % trackState.effectiveRhythm.length);
     }

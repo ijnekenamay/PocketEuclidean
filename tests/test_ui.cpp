@@ -928,7 +928,10 @@ void testScreensAndEditRanges() {
     expect(ui.state().screen == Screen::Modulation,
            "mixer advances to modulation screen");
     ui.dispatch({Action::ScreenNext});
-    expect(ui.state().screen == Screen::System, "modulation advances to system screen");
+    expect(ui.state().screen == Screen::Turing,
+           "modulation advances to the Turing screen");
+    ui.dispatch({Action::ScreenNext});
+    expect(ui.state().screen == Screen::System, "Turing advances to system screen");
     ui.dispatch({Action::ScreenNext});
     expect(ui.state().screen == Screen::Main, "all primary screens wrap around");
 
@@ -1035,8 +1038,11 @@ void testScreensAndEditRanges() {
     expect(modulationSequencer.track(0).jitter.intensity == 5,
            "modulation screen exposes per-track jitter intensity");
     modulationUi.dispatch({Action::ScreenNext});
+    expect(modulationUi.state().screen == Screen::Turing,
+           "Turing screen follows modulation screen");
+    modulationUi.dispatch({Action::ScreenNext});
     expect(modulationUi.state().screen == Screen::System,
-           "system screen follows modulation screen");
+           "system screen follows Turing screen");
     modulationUi.dispatch({Action::NavDown});
     expect(modulationUi.state().systemCategory ==
                platform::SettingsCategory::Midi,
@@ -1054,15 +1060,56 @@ void testScreensAndEditRanges() {
     expect(platform::isValid(modulationUi.systemSettings()),
            "UI exposes a valid separate system settings model");
 
+    Sequencer turingSequencer;
+    UiController turingUi(turingSequencer);
+    for (int screen = 0; screen < 5; ++screen) {
+        turingUi.dispatch({Action::ScreenNext});
+    }
+    expect(turingUi.state().screen == Screen::Turing &&
+               turingUi.state().turingField == TuringField::Enabled,
+           "Turing screen is reachable from the main screen");
+    turingUi.dispatch({Action::NavRight, false, true});
+    expect(turingSequencer.track(0).turing.enabled,
+           "Turing screen enables the selected track generator");
+    turingUi.dispatch({Action::NavDown});
+    turingUi.dispatch({Action::NavRight, false, true});
+    expect(turingSequencer.track(0).turing.clock == TuringClockMode::Euclid,
+           "Turing screen selects the Euclidean clock mode");
+    turingUi.dispatch({Action::NavDown});
+    turingUi.dispatch({Action::NavRight, false, true});
+    expect(turingSequencer.track(0).turing.rate == TuringRate::Eighth,
+           "Turing screen changes the clock rate");
+    turingUi.dispatch({Action::NavDown});
+    turingUi.dispatch({Action::NavRight, false, true});
+    expect(turingSequencer.track(0).turing.length == 9,
+           "Turing screen edits the loop length");
+    const auto registerBefore = turingSequencer.turingDisplay(0).values;
+    turingUi.dispatch({Action::Confirm});
+    expect(turingSequencer.turingDisplay(0).values != registerBefore &&
+               turingSequencer.track(0).turingReseedRevision == 1,
+           "Confirm performs a live S&H reseed without dirtying the project");
+    for (int field = 0; field < 7; ++field) {
+        turingUi.dispatch({Action::NavDown});
+    }
+    expect(turingUi.state().turingField == TuringField::CustomSeed,
+           "Turing right column is reachable by vertical navigation");
+    turingUi.dispatch({Action::Confirm});
+    turingUi.dispatch({Action::NavDown});
+    turingUi.dispatch({Action::NavRight, false, true});
+    expect(turingSequencer.track(0).turing.useCustomSeed &&
+               turingSequencer.track(0).turing.randomSeed == 2,
+           "Turing screen edits the custom seed");
+    turingUi.dispatch({Action::Back});
+    expect(turingUi.state().screen == Screen::Modulation,
+           "Turing back returns to the modulation screen");
+
     Sequencer handheldSequencer;
     const platform::SystemCapabilities handheldCapabilities{
         false, false, true, false, true, true};
     UiController handheldUi(handheldSequencer, handheldCapabilities);
-    handheldUi.dispatch({Action::ScreenNext});
-    handheldUi.dispatch({Action::ScreenNext});
-    handheldUi.dispatch({Action::ScreenNext});
-    handheldUi.dispatch({Action::ScreenNext});
-    handheldUi.dispatch({Action::ScreenNext});
+    for (int screen = 0; screen < 6; ++screen) {
+        handheldUi.dispatch({Action::ScreenNext});
+    }
     handheldUi.dispatch({Action::NavDown});
     expect(handheldUi.state().systemCategory ==
                platform::SettingsCategory::InputAndControls,
@@ -1206,7 +1253,7 @@ void testSystemThemeSelection() {
     const platform::SystemCapabilities capabilities{
         true, true, true, true, true, true};
     UiController ui(sequencer, capabilities);
-    for (int screen = 0; screen < 5; ++screen) {
+    for (int screen = 0; screen < 6; ++screen) {
         ui.dispatch({Action::ScreenNext});
     }
     expect(ui.state().screen == Screen::System,
@@ -1309,7 +1356,7 @@ void testEffectiveTrackStateAndTempoControls() {
                tempoUi.systemSettings().clock.initialTempoBpm == 124,
            "MAIN screen fine Left/Right adjusts tempo by 1 BPM");
 
-    for (int s = 0; s < 5; ++s) {
+    for (int s = 0; s < 6; ++s) {
         tempoUi.dispatch({Action::ScreenNext});
     }
     expect(tempoUi.state().screen == Screen::System &&

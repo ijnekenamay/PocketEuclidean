@@ -47,6 +47,10 @@ public:
 
 private:
     bool syncSynthVoice(std::size_t track) noexcept;
+    bool applySynthPitch(std::size_t track) noexcept;
+    float playbackRateFor(std::size_t track) const noexcept;
+    void updatePitchSmoothing(std::uint32_t frameCount,
+                              std::uint32_t sampleRate) noexcept;
 
     Sequencer& sequencer_;
     SamplerVoicePool& voices_;
@@ -61,6 +65,10 @@ private:
     std::array<AdEnvelopeSettings, TrackCount> envelopeSettings_{};
     std::array<TrackFilterSettings, TrackCount> filterSettings_{};
     std::array<TrackSynthSettings, TrackCount> synthSettings_{};
+    // Turing pitch, in semitones. target follows each tick; offset is the
+    // GLIDE-smoothed value actually sent to the voices.
+    std::array<float, TrackCount> pitchOffset_{};
+    std::array<float, TrackCount> targetPitchOffset_{};
     std::array<float, MaxRenderFrames> outputLeft_{};
     std::array<float, MaxRenderFrames> outputRight_{};
     std::array<StereoInputBuffer, TrackCount> inputs_{};

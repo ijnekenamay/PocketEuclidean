@@ -301,6 +301,16 @@ ornamental frames.
 Represent LFO rate, amount, and destinations through compact text and flat bars.
 Consider subtly indicating effective values without obscuring base values.
 
+### TURING
+
+Treat the sample-and-hold register as a small generative score: one bar per loop
+slot on the left, with the moving head marked by luminance or a single accent
+line, and the current semitone offset on the right. The parameter rows keep the
+same flat-bar grammar as SOUND and MODULATION. Do not add piano-roll grids,
+note-name badges per step, or decorative sequencer chrome; the register's shape
+and the head position are the graphic. A reseed is a performance gesture, so it
+should read as a change in the bars themselves rather than a dialog.
+
 ### SYSTEM
 
 Follow the same typography and spacing rules, prioritizing operational clarity.
@@ -365,7 +375,7 @@ A UI implementation is consistent with this policy when:
 - Light decay feels continuous, controlled, and rhythmically connected.
 - Parameter values are understandable and editable without conventional knobs or
   boxed controls.
-- All six screens remain uncluttered.
+- All seven screens remain uncluttered.
 - The visual language works at the target device's native resolution.
 - Animation introduces no audible timing errors or audio-performance
   degradation.

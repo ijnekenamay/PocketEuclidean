@@ -17,15 +17,17 @@ Each track's Euclidean step bar stretches elastically to 100% of the lane width 
 | ![MAIN Screen](docs/images/ui_main.png) | ![EDIT Screen](docs/images/ui_edit.png) |
 | **SOUND (AD / LPF / VA Synth / Delay Visualizer)** | **MIXER CONSOLE (8-Ch Level & Pan Field)** |
 | ![SOUND Screen](docs/images/ui_sound.png) | ![MIXER Screen](docs/images/ui_mixer.png) |
-| **MODULATION (LFO Cycle & Jitter Scatter)** | **SYSTEM (Clock / MIDI / Display Theme)** |
-| ![MODULATION Screen](docs/images/ui_modulation.png) | ![SYSTEM Screen](docs/images/ui_system.png) |
+| **MODULATION (LFO Cycle & Jitter Scatter)** | **TURING (S&H Phrase Register)** |
+| ![MODULATION Screen](docs/images/ui_modulation.png) | ![TURING Screen](docs/images/ui_turing.png) |
+| **SYSTEM (Clock / MIDI / Display Theme)** | |
+| ![SYSTEM Screen](docs/images/ui_system.png) | |
 
 ## Project status
 
 The repository currently provides a portable sequencer and modulation core,
 sampler/synth rendering path, mixer DSP, fixed-size audio/UI event queues,
 logical UI state/input handling, and platform interface contracts. The SDL2
-desktop shell renders all six screens, runs audio through SDL, saves and loads
+desktop shell renders all seven screens, runs audio through SDL, saves and loads
 versioned projects and settings, and supports per-track WAV selection.
 Remaining gaps include device packaging, deeper effects routing, Save As /
 missing-sample recovery flows, and measured performance on target hardware.
@@ -33,7 +35,7 @@ missing-sample recovery flows, and measured performance on target hardware.
 Build and test status is deliberately conservative. The portable core and both
 CTest executables have been built and run on Windows x86-64 with LLVM-MinGW
 Clang 23.1.3 and Ninja; all tests passed. SOUND (MODEL / SAMPLE), the SELECT WAV
-browser, project v9 sample restore, and a live sample swap during playback were
+browser, project v10 sample restore, and a live sample swap during playback were
 also checked with GUI captures. This still does not verify audible quality,
 long-run stability, or any handheld. No handheld runtime is claimed as verified.
 The current Brick Pro ABI, compiler, sysroot, SDL2 runtime, controller mapping,
@@ -81,7 +83,7 @@ $env:PATH = "C:\toolchain\bin;$env:PATH"
 `pocket_euclidean_app` is now available as an application-shell target:
 
 - with SDL2 detected by CMake: opens a resizable window, maps keyboard /
-  controller inputs to logical actions, cycles all six UI screens, and renders
+  controller inputs to logical actions, cycles all seven UI screens, and renders
   bounded 2D primitives (MAIN pattern bars and simple per-screen rows);
 - without SDL2: starts in headless fallback mode and prints a clear message.
 
@@ -90,7 +92,7 @@ Examples:
 ```powershell
 .\build\windows\Debug\pocket_euclidean_app.exe --headless
 .\build\windows\Debug\pocket_euclidean_app.exe --width 1024 --height 768
-# 1フレームだけ描画してBMP保存（画面確認用。--screen 0-5、--help-modal も指定可）
+# 1フレームだけ描画してBMP保存（画面確認用。--screen 0-6、--help-modal も指定可）
 .\build\windows\Debug\pocket_euclidean_app.exe --screen 1 --capture edit.bmp
 # 起動直後から再生（音声デバイスが開ければ音声クロック駆動）
 .\build\windows\Debug\pocket_euclidean_app.exe --play
@@ -98,7 +100,7 @@ Examples:
 .\build\windows\Debug\pocket_euclidean_app.exe --play --samples C:\path\to\wavs
 ```
 
-`--data <dir>`（既定 `./conf`）の `project.pec` に、Project menu（Select）の SAVE／LOAD／NEW で保存・読み込みできます。起動時に存在すれば自動で読み込みます。プロジェクト形式はv9で、トラックごとのPlaitsモデルとサンプルパスを保存します（v6–v8は読み込み時に移行）。プロジェクトファイル名のSave Asはまだなく、1スロットのみです。SOUND画面のSAMPLE行でSELECT WAVブラウザを開き、トラック別にWAVを選択できます。同じディレクトリの `settings.cfg` にはテーマとマスター音量などが自動保存されます。
+`--data <dir>`（既定 `./conf`）の `project.pec` に、Project menu（Select）の SAVE／LOAD／NEW で保存・読み込みできます。起動時に存在すれば自動で読み込みます。プロジェクト形式はv10で、トラックごとのPlaitsモデル、サンプルパス、Turing Machine設定を保存します（v6–v9は読み込み時に移行）。プロジェクトファイル名のSave Asはまだなく、1スロットのみです。SOUND画面のSAMPLE行でSELECT WAVブラウザを開き、トラック別にWAVを選択できます。同じディレクトリの `settings.cfg` にはテーマとマスター音量などが自動保存されます。
 
 ```powershell
 # ハンドヘルド向けの起動オプション: 全画面、音声レート／バッファー指定。

@@ -136,6 +136,8 @@ bool AudioCallbackProcessor::process(float* interleavedStereo,
                     const auto jitterEvents =
                         sequencer_.jitterEventsMask(t, jitterValid);
                     modulation_->publishJitter(t, jitterEvents, jitterValid);
+                    modulation_->publishTuring(t,
+                                               sequencer_.turingDisplay(t));
                 }
             }
             if (tickCallback_ != nullptr) {

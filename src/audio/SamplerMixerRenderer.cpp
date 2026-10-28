@@ -1,5 +1,8 @@
 #include "audio/SamplerMixerRenderer.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace pocket::audio {
 
 SamplerMixerRenderer::SamplerMixerRenderer(
@@ -75,13 +78,53 @@ bool SamplerMixerRenderer::syncSynthVoice(std::size_t track) noexcept {
         return true;
     }
     SynthParameters params = synthVoices_->parameters(track);
-    params.pitchHz = synthSettings_[track].pitchHz;
+    params.pitchHz = std::clamp(
+        synthSettings_[track].pitchHz *
+            std::pow(2.0F, pitchOffset_[track] / 12.0F),
+        TrackSynthSettings::MinPitchHz, SynthVoiceRack::MaxPitchHz);
     params.morph = synthSettings_[track].morph;
     params.timbre = synthSettings_[track].timbre;
     params.color = synthSettings_[track].color;
     params.engine = synthSettings_[track].engineType;
     params.model = synthSettings_[track].model;
     return synthVoices_->updateParameters(track, params);
+}
+
+bool SamplerMixerRenderer::applySynthPitch(std::size_t track) noexcept {
+    if (synthVoices_ == nullptr || !synthVoices_->isConfigured(track)) {
+        return true;
+    }
+    SynthParameters params = synthVoices_->parameters(track);
+    params.pitchHz = std::clamp(
+        synthSettings_[track].pitchHz *
+            std::pow(2.0F, pitchOffset_[track] / 12.0F),
+        TrackSynthSettings::MinPitchHz, SynthVoiceRack::MaxPitchHz);
+    return synthVoices_->updateParameters(track, params);
+}
+
+float SamplerMixerRenderer::playbackRateFor(std::size_t track) const noexcept {
+    return std::clamp(std::pow(2.0F, pitchOffset_[track] / 12.0F),
+                      SamplerVoicePool::MinPlaybackRate,
+                      SamplerVoicePool::MaxPlaybackRate);
+}
+
+void SamplerMixerRenderer::updatePitchSmoothing(
+    std::uint32_t frameCount, std::uint32_t sampleRate) noexcept {
+    const float blockSeconds =
+        static_cast<float>(frameCount) / static_cast<float>(sampleRate);
+    for (std::size_t track = 0; track < TrackCount; ++track) {
+        const auto& turing = sequencer_.track(track).turing;
+        if (turing.glide == 0) {
+            pitchOffset_[track] = targetPitchOffset_[track];
+            continue;
+        }
+        const float glideSeconds =
+            static_cast<float>(turing.glide) / 100.0F * 0.5F;
+        const float coefficient =
+            1.0F - std::exp(-blockSeconds / glideSeconds);
+        pitchOffset_[track] +=
+            (targetPitchOffset_[track] - pitchOffset_[track]) * coefficient;
+    }
 }
 
 bool SamplerMixerRenderer::isRealtimeSafe() const noexcept {
@@ -108,13 +151,20 @@ bool SamplerMixerRenderer::trigger(const TickResult& tick,
             continue;
         }
         const auto& state = sequencer_.track(track);
+        targetPitchOffset_[track] =
+            static_cast<float>(tick.pitchOffsets[track]);
+        if (state.turing.glide == 0) {
+            pitchOffset_[track] = targetPitchOffset_[track];
+        }
         if (state.instrument == InstrumentType::Sampler) {
-            if (!voices_.trigger(track)) {
+            if (!voices_.trigger(track, playbackRateFor(track))) {
                 continue;
             }
-        } else if (synthVoices_ == nullptr ||
-                   !synthVoices_->trigger(track)) {
-            return false;
+        } else {
+            if (synthVoices_ == nullptr || !applySynthPitch(track) ||
+                !synthVoices_->trigger(track)) {
+                return false;
+            }
         }
         if (!envelopes_[track].trigger(envelopeSettings_[track], sampleRate)) {
             return false;
@@ -238,6 +288,7 @@ bool SamplerMixerRenderer::render(float* interleavedStereo,
     // Sample swaps arrive from the UI thread through the voice pool's bounded
     // queue and are applied here, before any voice renders this segment.
     voices_.applyPendingSamples();
+    updatePitchSmoothing(frameCount, sampleRate);
 
     for (std::size_t track = 0; track < TrackCount; ++track) {
         if (!envelopes_[track].isActive()) {
@@ -248,14 +299,18 @@ bool SamplerMixerRenderer::render(float* interleavedStereo,
             continue;
         }
 
-        const bool rendered =
-            sequencer_.track(track).instrument == InstrumentType::Synth
-                ? synthVoices_ != nullptr &&
-                      synthVoices_->renderTrack(
-                          track, trackBuffers_[track].data(), frameCount,
-                          sampleRate)
-                : voices_.renderTrack(track, trackBuffers_[track].data(),
-                                      frameCount, sampleRate);
+        bool rendered = false;
+        if (sequencer_.track(track).instrument == InstrumentType::Synth) {
+            rendered = synthVoices_ != nullptr && applySynthPitch(track) &&
+                       synthVoices_->renderTrack(
+                           track, trackBuffers_[track].data(), frameCount,
+                           sampleRate);
+        } else {
+            rendered = voices_.setTrackPlaybackRate(
+                           track, playbackRateFor(track)) &&
+                       voices_.renderTrack(track, trackBuffers_[track].data(),
+                                           frameCount, sampleRate);
+        }
         if (!rendered) {
             return false;
         }

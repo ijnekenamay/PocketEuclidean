@@ -112,6 +112,20 @@ bool SamplerVoicePool::trigger(std::size_t track,
     return true;
 }
 
+bool SamplerVoicePool::setTrackPlaybackRate(
+    std::size_t track, float playbackRate) noexcept {
+    if (track >= TrackCount || !std::isfinite(playbackRate) ||
+        playbackRate < MinPlaybackRate || playbackRate > MaxPlaybackRate) {
+        return false;
+    }
+    for (auto& voice : voices_) {
+        if (voice.active && voice.track == track) {
+            voice.playbackRate = playbackRate;
+        }
+    }
+    return true;
+}
+
 bool SamplerVoicePool::renderTrack(std::size_t track,
                                    float* monoOutput,
                                    std::size_t frameCount,

@@ -17,6 +17,8 @@ enum class SequencerCommandType : std::uint8_t {
     SetRhythm,
     SetLfo,
     SetJitter,
+    SetTuring,
+    ReseedTuring,
     SetMuted,
     SetInstrument,
     SetVolume,
@@ -37,6 +39,7 @@ struct SequencerCommand {
     EuclideanConfig rhythm{};
     LfoConfig lfo{};
     JitterConfig jitter{};
+    TuringConfig turing{};
     bool muted = false;
     InstrumentType instrument = InstrumentType::Sampler;
     std::uint8_t volume = 100;
@@ -106,6 +109,10 @@ inline bool applySequencerCommand(Sequencer& sequencer,
         return sequencer.setLfo(c.track, c.lfo, c.lfoIndex);
     case SequencerCommandType::SetJitter:
         return sequencer.setJitter(c.track, c.jitter);
+    case SequencerCommandType::SetTuring:
+        return sequencer.setTuring(c.track, c.turing);
+    case SequencerCommandType::ReseedTuring:
+        return sequencer.reseedTuring(c.track);
     case SequencerCommandType::SetMuted:
         return sequencer.setMuted(c.track, c.muted);
     case SequencerCommandType::SetInstrument:
@@ -189,6 +196,15 @@ private:
                a.useCustomSeed == b.useCustomSeed &&
                a.randomSeed == b.randomSeed;
     }
+    static bool same(const TuringConfig& a, const TuringConfig& b) {
+        return a.enabled == b.enabled && a.clock == b.clock &&
+               a.rate == b.rate && a.length == b.length &&
+               a.chance == b.chance && a.range == b.range &&
+               a.scale == b.scale && a.root == b.root &&
+               a.glide == b.glide && a.drift == b.drift &&
+               a.useCustomSeed == b.useCustomSeed &&
+               a.randomSeed == b.randomSeed;
+    }
     static bool same(const AdEnvelopeSettings& a, const AdEnvelopeSettings& b) {
         return a.attackSeconds == b.attackSeconds &&
                a.decaySeconds == b.decaySeconds;
@@ -232,6 +248,19 @@ private:
             c.jitter = now.jitter;
             if (queue_.push(c)) {
                 shadow_.setJitter(t, now.jitter);
+            }
+        }
+        if (!same(now.turing, old.turing)) {
+            c.type = SequencerCommandType::SetTuring;
+            c.turing = now.turing;
+            if (queue_.push(c)) {
+                shadow_.setTuring(t, now.turing);
+            }
+        }
+        if (now.turingReseedRevision != old.turingReseedRevision) {
+            c.type = SequencerCommandType::ReseedTuring;
+            if (queue_.push(c)) {
+                shadow_.reseedTuring(t);
             }
         }
         if (now.muted != old.muted) {

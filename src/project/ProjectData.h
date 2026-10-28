@@ -8,7 +8,7 @@
 
 namespace pocket::project {
 
-constexpr std::uint32_t ProjectFormatVersion = 9;
+constexpr std::uint32_t ProjectFormatVersion = 10;
 // Oldest on-disk version the reader can still load. Older files are upgraded
 // in memory by filling newly added fields with their defaults.
 constexpr std::uint32_t OldestSupportedProjectVersion = 6;
@@ -25,6 +25,7 @@ struct ProjectTrackData {
     EuclideanConfig rhythm{};
     std::array<LfoConfig, MaxLfosPerTrack> lfos{};
     JitterConfig jitter{};
+    TuringConfig turing{};
     bool muted = false;
     InstrumentType instrument = InstrumentType::Sampler;
     std::uint8_t volume = 100;

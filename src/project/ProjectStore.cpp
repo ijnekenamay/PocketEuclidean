@@ -20,6 +20,9 @@ constexpr int LfoDivisionMax = static_cast<int>(LfoDivision::Count) - 1;
 constexpr int DestinationMax = static_cast<int>(ModulationDestination::Offset);
 constexpr int JitterModeMax = static_cast<int>(JitterMode::Mix);
 constexpr int JitterRateMax = static_cast<int>(JitterRate::Whole);
+constexpr int TuringClockMax = static_cast<int>(TuringClockMode::Free);
+constexpr int TuringRateMax = static_cast<int>(TuringRate::Whole);
+constexpr int TuringScaleMax = static_cast<int>(TuringScale::Count) - 1;
 
 // Project tokens are whitespace-separated, so paths are percent-encoded.
 std::string encodePath(const std::string& path) {
@@ -171,6 +174,32 @@ bool parseTrackLine(const std::string& key, std::istringstream& in,
         jitter.useCustomSeed = useSeed != 0;
         return true;
     }
+    if (field == "turing") {
+        // Format v10 appended the per-track S&H phrase generator.
+        if (version < 10) {
+            return false;
+        }
+        int enabled = 0;
+        int useSeed = 0;
+        auto& turing = track.turing;
+        if (!(readInt(in, enabled, 0, 1) &&
+              readInt(in, turing.clock, 0, TuringClockMax) &&
+              readInt(in, turing.rate, 0, TuringRateMax) &&
+              readInt(in, turing.length, 2, 32) &&
+              readInt(in, turing.chance, 0, 100) &&
+              readInt(in, turing.range, 1, 24) &&
+              readInt(in, turing.scale, 0, TuringScaleMax) &&
+              readInt(in, turing.root, 0, 11) &&
+              readInt(in, turing.glide, 0, 100) &&
+              readInt(in, turing.drift, 0, 100) &&
+              readInt(in, useSeed, 0, 1) &&
+              readValue(in, turing.randomSeed))) {
+            return false;
+        }
+        turing.enabled = enabled != 0;
+        turing.useCustomSeed = useSeed != 0;
+        return TuringEngine::isValid(turing);
+    }
     if (field == "mix") {
         int muted = 0;
         if (!(readInt(in, muted, 0, 1) &&
@@ -257,6 +286,7 @@ ProjectData captureProject(const Sequencer& sequencer) {
         target.rhythm = source.rhythm;
         target.lfos = source.lfos;
         target.jitter = source.jitter;
+        target.turing = source.turing;
         target.muted = source.muted;
         target.instrument = source.instrument;
         target.volume = source.volume;
@@ -302,6 +332,7 @@ bool applyProject(const ProjectData& project, Sequencer& sequencer) {
             ok = sequencer.setLfo(i, source.lfos[lfo], lfo) && ok;
         }
         ok = sequencer.setJitter(i, source.jitter) && ok;
+        ok = sequencer.setTuring(i, source.turing) && ok;
         ok = sequencer.setMuted(i, source.muted) && ok;
         ok = sequencer.setInstrument(i, source.instrument) && ok;
         ok = sequencer.setVolume(i, source.volume) && ok;
@@ -339,6 +370,13 @@ std::string serializeProject(const ProjectData& project) {
             << ' ' << int(j.intensity) << ' ' << int(j.rate) << ' '
             << int(j.shiftRange) << ' ' << int(j.useCustomSeed) << ' '
             << j.randomSeed << '\n';
+        const auto& g = t.turing;
+        out << prefix << "turing " << int(g.enabled) << ' ' << int(g.clock)
+            << ' ' << int(g.rate) << ' ' << int(g.length) << ' '
+            << int(g.chance) << ' ' << int(g.range) << ' ' << int(g.scale)
+            << ' ' << int(g.root) << ' ' << int(g.glide) << ' '
+            << int(g.drift) << ' ' << int(g.useCustomSeed) << ' '
+            << g.randomSeed << '\n';
         out << prefix << "mix " << int(t.muted) << ' ' << int(t.instrument)
             << ' ' << int(t.volume) << ' ' << t.pan << ' ' << t.reverbSend
             << ' ' << t.delaySend << '\n';
