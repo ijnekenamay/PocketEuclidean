@@ -613,6 +613,67 @@ void drawInstrumentGlyph(SDL_Renderer* renderer,
     }
 }
 
+// Flat padlock for the mixer strip. A filled body reads as "locked"; the
+// outline body reads as "still evolving". Rectangles only, like the
+// instrument glyphs.
+void drawLockGlyph(SDL_Renderer* renderer,
+                   const pocket::ui::RgbaColor& color,
+                   bool locked,
+                   std::int32_t x,
+                   std::int32_t y,
+                   std::int32_t size) {
+    if (size < 8) {
+        return;
+    }
+    const std::int32_t stroke = std::max<std::int32_t>(1, size / 8);
+    const std::int32_t bodyH = std::max<std::int32_t>(4, size * 55 / 100);
+    const std::int32_t bodyY = y + size - bodyH;
+    const std::int32_t shackleW = std::max<std::int32_t>(4, size * 60 / 100);
+    const std::int32_t shackleX = x + (size - shackleW) / 2;
+    const std::int32_t shackleTop = y;
+    const std::int32_t legH = std::max<std::int32_t>(2, bodyY - shackleTop);
+
+    setColor(renderer, color);
+    fillRect(renderer, shackleX, shackleTop, stroke, legH);
+    fillRect(renderer, shackleX + shackleW - stroke, shackleTop, stroke, legH);
+    fillRect(renderer, shackleX, shackleTop, shackleW, stroke);
+
+    if (locked) {
+        fillRect(renderer, x, bodyY, size, bodyH);
+    } else {
+        fillRect(renderer, x, bodyY, size, stroke);
+        fillRect(renderer, x, bodyY + bodyH - stroke, size, stroke);
+        fillRect(renderer, x, bodyY, stroke, bodyH);
+        fillRect(renderer, x + size - stroke, bodyY, stroke, bodyH);
+    }
+}
+
+// Flat die face (quincunx). The momentary DICE action uses it without any
+// stored state, so the caller only varies its color. A filled face with
+// cut-out pips stays legible at 640x480 where an outlined die would collapse
+// into noise.
+void drawDiceGlyph(SDL_Renderer* renderer,
+                   const pocket::ui::RgbaColor& color,
+                   const pocket::ui::RgbaColor& hole,
+                   std::int32_t x,
+                   std::int32_t y,
+                   std::int32_t size) {
+    if (size < 8) {
+        return;
+    }
+    setColor(renderer, color);
+    fillRect(renderer, x, y, size, size);
+
+    const std::int32_t pip = std::max<std::int32_t>(2, size / 6);
+    constexpr int Faces[5][2] = {{24, 24}, {76, 24}, {50, 50},
+                                 {24, 76}, {76, 76}};
+    setColor(renderer, hole);
+    for (const auto& face : Faces) {
+        fillRect(renderer, x + size * face[0] / 100 - pip / 2,
+                 y + size * face[1] / 100 - pip / 2, pip, pip);
+    }
+}
+
 void drawHeaderBar(SDL_Renderer* renderer,
                    const pocket::ui::ThemePalette& palette,
                    const std::string& title,
@@ -1874,14 +1935,14 @@ void renderMixerScreen(SDL_Renderer* renderer,
     const std::int32_t muteWidth =
         std::max<std::int32_t>(26, usableWidth * 5 / 100);
     const std::int32_t lockWidth =
-        std::max<std::int32_t>(28, usableWidth * 5 / 100);
+        std::max<std::int32_t>(22, usableWidth * 3 / 100);
     const std::int32_t diceWidth =
-        std::max<std::int32_t>(26, usableWidth * 6 / 100);
+        std::max<std::int32_t>(22, usableWidth * 3 / 100);
     const std::int32_t muteX = margin + iconWidth + gap;
     const std::int32_t lockX = muteX + muteWidth + gap;
     const std::int32_t diceX = lockX + lockWidth + gap;
     const std::int32_t volBarX = diceX + diceWidth + gap;
-    const std::int32_t volBarW = usableWidth * 20 / 100;
+    const std::int32_t volBarW = usableWidth * 24 / 100;
     const std::int32_t panBarX = volBarX + volBarW + gap;
     const std::int32_t panBarW = usableWidth * 9 / 100;
     const std::int32_t revBarX = panBarX + panBarW + gap;
@@ -1940,7 +2001,8 @@ void renderMixerScreen(SDL_Renderer* renderer,
                  y, muteWidth, pitch, muteText, muteScale);
 
         // LOCK freezes this track's S&H phrase; the phrase keeps looping but
-        // CHANCE and DRIFT stop changing it.
+        // CHANCE and DRIFT stop changing it. The padlock is filled while
+        // engaged, so the strip state reads without a label.
         const bool lockSelected =
             isSelected && field == pocket::ui::MixerField::Lock;
         const bool turingLocked = state.turing.locked;
@@ -1948,33 +2010,34 @@ void renderMixerScreen(SDL_Renderer* renderer,
                  turingLocked
                      ? (isSelected ? palette.accent : palette.primary)
                      : blendColor(palette.background, palette.subdued,
-                                  lockSelected ? 0.55F : 0.30F));
+                                  lockSelected ? 0.55F : 0.34F));
         fillRect(renderer, lockX, y + 3, lockWidth, cellHeight);
-        const auto lockText =
+        const auto lockInk =
             turingLocked ? palette.background
                          : (lockSelected ? palette.accent : palette.primary);
-        const std::int32_t lockScale = std::max<std::int32_t>(
-            1, std::min(rowScale, fitScale("LOCK", lockWidth, pitch)));
-        drawText(renderer, "LOCK",
-                 lockX + (lockWidth - textPixelWidth("LOCK", lockScale)) / 2, y,
-                 lockWidth, pitch, lockText, lockScale);
+        const std::int32_t lockIcon = std::clamp<std::int32_t>(
+            std::min(cellHeight - 2, lockWidth - 8), 10, 20);
+        drawLockGlyph(renderer, lockInk, turingLocked,
+                      lockX + (lockWidth - lockIcon) / 2,
+                      y + 3 + (cellHeight - lockIcon) / 2, lockIcon);
 
         // DICE throws a new phrase seed for this track. It is momentary, so it
         // only brightens while focused instead of holding a state.
         const bool diceSelected =
             isSelected && field == pocket::ui::MixerField::Dice;
-        setColor(renderer, blendColor(palette.background, palette.subdued,
-                                      diceSelected ? 0.55F : 0.22F));
+        const auto diceFill = blendColor(palette.background, palette.subdued,
+                                         diceSelected ? 0.55F : 0.30F);
+        setColor(renderer, diceFill);
         fillRect(renderer, diceX, y + 3, diceWidth, cellHeight);
-        const std::int32_t diceScale = std::max<std::int32_t>(
-            1, std::min(rowScale, fitScale("DICE", diceWidth, pitch)));
-        drawText(renderer, "DICE",
-                 diceX + (diceWidth - textPixelWidth("DICE", diceScale)) / 2, y,
-                 diceWidth, pitch,
-                 diceSelected
-                     ? palette.accent
-                     : blendColor(palette.background, palette.subdued, 0.85F),
-                 diceScale);
+        const std::int32_t diceIcon = std::clamp<std::int32_t>(
+            std::min(cellHeight - 2, diceWidth - 8), 10, 20);
+        drawDiceGlyph(renderer,
+                      diceSelected
+                          ? palette.accent
+                          : blendColor(palette.background, palette.subdued,
+                                       0.85F),
+                      diceFill, diceX + (diceWidth - diceIcon) / 2,
+                      y + 3 + (cellHeight - diceIcon) / 2, diceIcon);
 
         const float volRatio =
             state.muted ? 0.0F : static_cast<float>(state.volume) / 100.0F;

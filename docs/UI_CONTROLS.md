@@ -137,11 +137,12 @@ persist raw SDL or joystick button numbers in the shared profile.
   adjusts the focused value. The header carries the `TRKn` badge and the
   focused field name/value without repeating the track number. The MUTE button
   in each strip shows the current mute state.
-  LOCK sits immediately right of MUTE and toggles the track's S&H phrase lock
-  (the same persistent flag as the TURING screen). DICE sits right of LOCK and
-  rolls a fresh phrase seed on either Left or Right, because a die has no up or
-  down; it is the quick "change the mood" gesture while mixing. Both fields act
-  on the selected track only.
+  LOCK sits immediately right of MUTE as a padlock icon and toggles the track's
+  S&H phrase lock (the same persistent flag as the TURING screen); its body is
+  filled while engaged. DICE sits right of LOCK as a die-face icon and rolls a
+  fresh phrase seed on either Left or Right, because a die has no up or down;
+  it is the quick "change the mood" gesture while mixing. Both fields act on
+  the selected track only.
   The global MuteToggle action remains a one-action shortcut. Track volume, pan,
   mute, and both effect sends are project state; master volume is a global
   system audio preference. Reverb and delay sends are post-fader (after track

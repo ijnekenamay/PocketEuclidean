@@ -295,9 +295,10 @@ Use horizontal level bars for track volume and a minimal centered pan indicator.
 Communicate mute and solo states, if implemented, with text or restrained
 luminance changes rather than boxed buttons. Peak meters may be flat bars without
 ornamental frames. The per-track phrase LOCK and DICE sit immediately right of
-MUTE as flat text badges in the same strip: LOCK holds a filled state while
-engaged, while DICE is momentary and only brightens when focused. Both use the
-same four semantic colors and add no frames or drop shadows.
+MUTE as flat geometric badges in the same strip: LOCK is a padlock whose body
+is filled while engaged and outlined while the phrase can still evolve, while
+DICE is a die face that is momentary and only brightens when focused. Both use
+the same four semantic colors and add no frames or drop shadows.
 
 ### MODULATION
 
