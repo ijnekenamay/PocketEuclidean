@@ -727,6 +727,7 @@ void testSynthEngineSelection() {
     using namespace pocket::ui;
 
     Sequencer sequencer;
+    sequencer.setInstrument(0, InstrumentType::Synth);
     audio::AudioParameterQueue queue;
     UiController ui(sequencer);
     ui.setAudioParameterQueue(&queue);
@@ -774,6 +775,22 @@ void testSynthEngineSelection() {
     ui.dispatch({Action::NavLeft, false, true});
     expect(ui.effectiveTrackState(0).synth.model == 15,
            "model field wraps from zero to the last model");
+
+    sequencer.setInstrument(0, InstrumentType::Sampler);
+    ui.dispatch({Action::NavUp});
+    ui.dispatch({Action::Confirm});
+    expect(ui.effectiveTrackState(0).synth.model == 15,
+           "confirm on EngineType is ignored while track instrument is Sampler");
+
+    sequencer.setInstrument(0, InstrumentType::Synth);
+    for (int i = 0; i < 6; ++i) {
+        ui.dispatch({Action::NavDown});
+    }
+    expect(ui.state().soundField == SoundField::Sample,
+           "navigation reaches sample row");
+    ui.dispatch({Action::Confirm});
+    expect(ui.state().modal == Modal::None,
+           "confirm on Sample does not open file selector while track instrument is Synth");
 }
 
 void testSampleBrowser() {
@@ -876,7 +893,7 @@ void testUiAudioParameterQueue() {
         expect(queue.pop(command), "drain queue after rejection test");
     }
     ui.dispatch({Action::ScreenNext});
-    ui.dispatch({Action::NavRight});
+    ui.dispatch({Action::NavRight, false, true});
     expect(queue.pop(command) &&
                command.parameter == audio::AudioParameter::TrackVolume &&
                command.value == 55.0F &&
@@ -940,49 +957,85 @@ void testScreensAndEditRanges() {
     ui.dispatch({Action::ScreenNext});
     expect(ui.state().screen == Screen::Mixer,
            "mixer is directly reachable by cycling from the main screen");
+    // Mixer columns move with left/right; values need A (or Ctrl) held, the
+    // same tracker-style modifier as SOUND, MODULATION, and TURING.
     ui.dispatch({Action::NavRight});
+    expect(ui.state().mixerField == MixerField::Pan &&
+               sequencer.track(0).volume == 100,
+           "mixer left/right moves the column without changing the value");
+    ui.dispatch({Action::NavLeft});
+    expect(ui.state().mixerField == MixerField::Volume,
+           "mixer left moves back to volume column");
+    ui.dispatch({Action::NavLeft, false, true});
+    expect(sequencer.track(0).volume == 95 &&
+               ui.state().mixerField == MixerField::Volume,
+           "mixer adjusts the selected track volume with A plus left/right");
+    ui.dispatch({Action::NavRight, false, true});
     expect(sequencer.track(0).volume == 100,
            "mixer volume remains within its 0 to 100 percent range");
-    ui.dispatch({Action::NavLeft});
-    expect(sequencer.track(0).volume == 95,
-           "mixer adjusts the selected track volume with controller navigation");
-    ui.dispatch({Action::Confirm});
-    ui.dispatch({Action::NavLeft});
-    expect(sequencer.track(0).pan < 0.0F,
+    ui.dispatch({Action::NavLeft, false, true});
+    ui.dispatch({Action::NavRight});
+    ui.dispatch({Action::NavLeft, false, true});
+    expect(sequencer.track(0).pan < 0.0F &&
+               ui.state().mixerField == MixerField::Pan,
            "mixer adjusts normalized track pan");
     ui.dispatch({Action::MuteToggle});
     expect(sequencer.track(0).muted,
            "mixer mute shortcut suppresses the selected track");
     const auto mixerSettings = ui.systemSettings().audio.masterVolumePercent;
-    ui.dispatch({Action::Confirm});
-    expect(ui.state().mixerField == MixerField::Mute,
-           "mixer field order reaches mute after pan");
-    ui.dispatch({Action::Confirm});
-    expect(ui.state().mixerField == MixerField::Lock,
-           "mixer field order reaches the phrase lock after mute");
     ui.dispatch({Action::NavRight});
+    expect(ui.state().mixerField == MixerField::Mute,
+           "mixer column order reaches mute after pan");
+    ui.dispatch({Action::Confirm});
+    expect(!sequencer.track(0).muted,
+           "mixer A tap toggles the mute switch");
+    ui.dispatch({Action::NavRight});
+    expect(ui.state().mixerField == MixerField::Lock,
+           "mixer column order reaches the phrase lock after mute");
+    ui.dispatch({Action::Confirm});
     expect(sequencer.track(0).turing.locked,
            "mixer lock freezes the selected track phrase");
-    ui.dispatch({Action::Confirm});
-    const auto seedBeforeDice = sequencer.track(0).turing.randomSeed;
     ui.dispatch({Action::NavRight});
+    expect(ui.state().mixerField == MixerField::Dice,
+           "mixer column order reaches the dice after lock");
+    const auto seedBeforeDice = sequencer.track(0).turing.randomSeed;
+    ui.dispatch({Action::Confirm});
     expect(sequencer.track(0).turing.randomSeed != seedBeforeDice &&
                sequencer.track(0).turing.useCustomSeed,
            "mixer dice rolls a new phrase seed");
-    ui.dispatch({Action::Confirm});
-    ui.dispatch({Action::NavRight, true});
-    expect(sequencer.track(0).reverbSend > 0.0F &&
-               ui.state().mixerField == MixerField::ReverbSend,
+    ui.dispatch({Action::NavRight});
+    expect(ui.state().mixerField == MixerField::ReverbSend,
+           "mixer column order reaches the reverb send after the dice");
+    ui.dispatch({Action::NavRight, false, true});
+    expect(sequencer.track(0).reverbSend > 0.0F,
            "mixer adjusts the selected track reverb send");
-    ui.dispatch({Action::Confirm});
-    ui.dispatch({Action::NavRight, true});
+    ui.dispatch({Action::NavRight});
+    ui.dispatch({Action::NavRight, true, true});
     expect(sequencer.track(0).delaySend > 0.0F &&
                ui.state().mixerField == MixerField::DelaySend,
            "mixer adjusts the selected track delay send");
-    ui.dispatch({Action::Confirm});
-    ui.dispatch({Action::NavLeft});
+    // Rows walk TRK1..TRK8 and then the master strip, like the parameter
+    // screens walk their rows.
+    ui.dispatch({Action::NavUp});
+    expect(ui.state().mixerMasterRow,
+           "mixer up from the first track selects the master strip");
+    ui.dispatch({Action::NavLeft, false, true});
     expect(ui.systemSettings().audio.masterVolumePercent < mixerSettings,
            "mixer master volume updates the global audio preference");
+    ui.dispatch({Action::NavUp});
+    expect(!ui.state().mixerMasterRow &&
+               ui.state().selectedTrack == 7,
+           "mixer up from the master strip wraps to the last track");
+    ui.dispatch({Action::NavDown});
+    expect(ui.state().mixerMasterRow,
+           "mixer down from the last track reaches the master strip");
+    ui.dispatch({Action::NavDown});
+    expect(!ui.state().mixerMasterRow &&
+               ui.state().selectedTrack == 0,
+           "mixer down from the master strip wraps to the first track");
+    ui.dispatch({Action::NavUp});
+    expect(ui.state().mixerMasterRow,
+           "mixer up from the first track reaches the master strip");
 
     ui.dispatch({Action::Back});
     ui.dispatch({Action::Confirm});
@@ -1327,6 +1380,7 @@ void testEffectiveTrackStateAndTempoControls() {
     using namespace pocket::ui;
 
     Sequencer sequencer;
+    sequencer.setInstrument(0, InstrumentType::Synth);
     audio::AudioParameterQueue queue;
     UiController ui(sequencer);
     ui.setAudioParameterQueue(&queue);

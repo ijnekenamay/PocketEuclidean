@@ -302,10 +302,19 @@ Present sound-source and synthesis parameters with the same flat-bar language.
 Keep labels concise and values easy to read. The header carries an accent
 `TRKn` badge so the edited track is never ambiguous, and the left/right columns
 stay visually separate without boxing every row.
+When a track uses the SAMPLER instrument, synth-only parameters (ENGINE, MODEL,
+PITCH, MORPH, TIMBRE, COLOR) are disabled and rendered in subdued colors without
+active fill, rather than shifting the grid rows. When SYNTH is active, SAMPLE is
+subdued. Disabled fields cannot be toggled via Confirm.
 
 ### MIXER
 
 Use horizontal level bars for track volume and a minimal centered pan indicator.
+Up/Down navigates between the eight track strips and the dedicated master volume
+strip below, aligning the vertical spatial order with the parameter screens.
+Left/Right moves between columns (VOL, PAN, MUTE, LOCK, DICE, REV, DLY); value
+changes use the same tracker-style A/Ctrl+Left/Right modifier as SOUND,
+MODULATION, and TURING. A tap on A directly toggles MUTE/LOCK or rolls DICE.
 Communicate mute and solo states, if implemented, with text or restrained
 luminance changes rather than boxed buttons. Peak meters may be flat bars without
 ornamental frames. The per-track phrase LOCK and DICE sit immediately right of
@@ -313,6 +322,8 @@ MUTE as flat geometric badges in the same strip: LOCK is a padlock whose body
 is filled while engaged and outlined while the phrase can still evolve, while
 DICE is a die face that is momentary and only brightens when focused. Both use
 the same four semantic colors and add no frames or drop shadows.
+The master strip spans the full fader width, and its header badge switches from
+`TRKn` to `MST`.
 
 ### MODULATION
 

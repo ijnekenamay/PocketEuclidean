@@ -450,6 +450,7 @@ struct ScreenRow {
     BarMode barMode = BarMode::None;
     float barRatio = 0.0F;
     bool activeState = false;
+    bool enabled = true;
 };
 
 // Super-flat horizontal parameter bar: no borders or bevels, pure proportion.
@@ -462,13 +463,23 @@ void drawFlatBar(SDL_Renderer* renderer,
                  BarMode mode,
                  float ratio,
                  bool selected,
-                 bool activeState) {
+                 bool activeState,
+                 bool enabled = true) {
     if (width <= 0 || height <= 0 || mode == BarMode::None) {
         return;
     }
     const auto trackColor =
-        blendColor(palette.background, palette.subdued, selected ? 0.50F : 0.35F);
+        blendColor(palette.background, palette.subdued,
+                   !enabled ? 0.20F : (selected ? 0.50F : 0.35F));
     const auto fillColor = selected ? palette.accent : palette.primary;
+    if (!enabled) {
+        const std::int32_t barHeight =
+            std::max<std::int32_t>(4, height * 6 / 20);
+        const std::int32_t barY = y + (height - barHeight) / 2;
+        setColor(renderer, trackColor);
+        fillRect(renderer, x, barY, width, barHeight);
+        return;
+    }
 
     if (mode == BarMode::Discrete) {
         const std::int32_t dotHeight = std::max<std::int32_t>(8, height * 9 / 20);
@@ -1902,14 +1913,21 @@ void renderRows(SDL_Renderer* renderer,
                          (columnWidth + columnGap);
         const std::int32_t y =
             startY + static_cast<std::int32_t>(localIndex) * pitch;
-        const auto& labelColor = selected ? palette.accent : palette.primary;
-        const auto& valueColor = selected ? palette.accent : palette.primary;
+        const bool isEnabled = row.enabled;
+        const auto subduedAccent =
+            blendColor(palette.accent, palette.subdued, 0.40F);
+        const auto& labelColor =
+            selected ? (isEnabled ? palette.accent : subduedAccent)
+                     : (isEnabled ? palette.primary : palette.subdued);
+        const auto& valueColor =
+            selected ? (isEnabled ? palette.accent : subduedAccent)
+                     : (isEnabled ? palette.primary : palette.subdued);
 
         if (selected) {
             setColor(renderer,
                      blendColor(palette.background, palette.subdued, 0.20F));
             fillRect(renderer, columnX - 4, y + 1, columnWidth + 8, pitch - 2);
-            setColor(renderer, palette.accent);
+            setColor(renderer, isEnabled ? palette.accent : subduedAccent);
             fillRect(renderer, columnX - 8, y + 2, 4, pitch - 4);
         }
 
@@ -1919,7 +1937,7 @@ void renderRows(SDL_Renderer* renderer,
         if (row.barMode != BarMode::None) {
             drawFlatBar(renderer, palette, columnX + barXOffset, y, barWidth,
                         pitch, row.barMode, row.barRatio, selected,
-                        row.activeState);
+                        row.activeState, isEnabled);
             drawTextRight(renderer, row.value, columnX + valueXOffset, y,
                           valueWidth, pitch, valueColor, rowScale);
         } else if (!row.value.empty()) {
@@ -1950,49 +1968,52 @@ void renderMixerScreen(SDL_Renderer* renderer,
     const std::size_t selected =
         std::min(ui.state().selectedTrack, pocket::TrackCount - 1);
     const auto field = ui.state().mixerField;
-    const char* const fieldNames[] = {"VOLUME", "PAN",    "MUTE", "LOCK",
-                                      "DICE",   "REV",    "DLY",  "MASTER"};
+    const char* const fieldNames[] = {"VOLUME", "PAN",   "MUTE", "LOCK",
+                                      "DICE",   "REV",   "DLY"};
     const std::size_t fieldCount = sizeof(fieldNames) / sizeof(fieldNames[0]);
     const auto fieldIndex = static_cast<std::size_t>(field);
+    const bool masterSelected = ui.state().mixerMasterRow;
 
     const auto focusState = ui.effectiveTrackState(selected);
     std::string focusValue;
-    switch (field) {
-    case pocket::ui::MixerField::Volume:
-        focusValue = std::to_string(focusState.volume) + "%";
-        break;
-    case pocket::ui::MixerField::Pan:
-        focusValue = formatNumber("%+.2f", focusState.pan);
-        break;
-    case pocket::ui::MixerField::Mute:
-        focusValue = focusState.muted ? "ON" : "OFF";
-        break;
-    case pocket::ui::MixerField::Lock:
-        focusValue = focusState.turing.locked ? "ON" : "OFF";
-        break;
-    case pocket::ui::MixerField::Dice:
-        focusValue = formatSeed(focusState.turing.randomSeed);
-        break;
-    case pocket::ui::MixerField::ReverbSend:
-        focusValue =
-            std::to_string(static_cast<int>(focusState.reverbSend * 100.0F)) +
-            "%";
-        break;
-    case pocket::ui::MixerField::DelaySend:
-        focusValue =
-            std::to_string(static_cast<int>(focusState.delaySend * 100.0F)) +
-            "%";
-        break;
-    default:
+    if (masterSelected) {
         focusValue =
             std::to_string(ui.systemSettings().audio.masterVolumePercent) + "%";
-        break;
+    } else {
+        switch (field) {
+        case pocket::ui::MixerField::Volume:
+            focusValue = std::to_string(focusState.volume) + "%";
+            break;
+        case pocket::ui::MixerField::Pan:
+            focusValue = formatNumber("%+.2f", focusState.pan);
+            break;
+        case pocket::ui::MixerField::Mute:
+            focusValue = focusState.muted ? "ON" : "OFF";
+            break;
+        case pocket::ui::MixerField::Lock:
+            focusValue = focusState.turing.locked ? "ON" : "OFF";
+            break;
+        case pocket::ui::MixerField::Dice:
+            focusValue = formatSeed(focusState.turing.randomSeed);
+            break;
+        case pocket::ui::MixerField::ReverbSend:
+            focusValue =
+                std::to_string(static_cast<int>(focusState.reverbSend * 100.0F)) +
+                "%";
+            break;
+        case pocket::ui::MixerField::DelaySend:
+            focusValue =
+                std::to_string(static_cast<int>(focusState.delaySend * 100.0F)) +
+                "%";
+            break;
+        }
     }
 
-    const std::string trackBadge = "TRK" + std::to_string(selected + 1);
+    const std::string trackBadge = masterSelected ? "MST" : ("TRK" + std::to_string(selected + 1));
     const std::string rightContext =
-        std::string(fieldNames[std::min(fieldIndex, fieldCount - 1)]) + " " +
-        focusValue;
+        masterSelected ? "MASTER " + focusValue
+                       : std::string(fieldNames[std::min(fieldIndex, fieldCount - 1)]) +
+                             " " + focusValue;
     HeaderTransport transport;
     transport.visible = true;
     transport.playing = sequencer.isPlaying();
@@ -2034,8 +2055,6 @@ void renderMixerScreen(SDL_Renderer* renderer,
     const std::int32_t dlyBarW = usableWidth * 11 / 100;
     const std::int32_t textX = dlyBarX + dlyBarW + gap;
     const std::int32_t textWidth = margin + usableWidth - textX;
-
-    const bool masterSelected = field == pocket::ui::MixerField::MasterVolume;
 
     // Column legend keeps the four fader strips readable without labels on
     // every row.
@@ -2197,7 +2216,7 @@ void renderMixerScreen(SDL_Renderer* renderer,
         textX, y, textWidth, pitch, masterColor, rowScale);
 
     drawFooter(renderer, palette, width, height,
-               "UP/DN:TRACK  ENTER:FIELD  LEFT/RIGHT:VALUE  TAB:SCREEN");
+               "UP/DN:TRACK  LEFT/RIGHT:FIELD  A/CTRL+LEFT/RIGHT:VALUE  TAB:SCREEN");
 }
 
 
@@ -2277,16 +2296,22 @@ std::vector<ScreenRow> soundRows(
     const float delayFbRatio =
         effects.delayFeedback / pocket::audio::DelayEffect::MaxFeedback;
 
+    const bool isSynth = track.instrument == pocket::InstrumentType::Synth;
+    const bool isSampler = track.instrument == pocket::InstrumentType::Sampler;
+    const bool isPlaits =
+        isSynth && (track.synth.engineType == pocket::SynthEngineType::Plaits);
+
     return {{"ATTACK",
              formatNumber("%.0f MS", track.envelope.attackSeconds * 1000.0),
-             BarMode::Unipolar, attackRatio, true},
+             BarMode::Unipolar, attackRatio, true, true},
             {"DECAY",
              formatNumber("%.0f MS", track.envelope.decaySeconds * 1000.0),
-             BarMode::Unipolar, decayRatio, true},
+             BarMode::Unipolar, decayRatio, true, true},
             {"FILTER", track.filter.enabled ? "ON" : "OFF", BarMode::Discrete,
-             0.0F, track.filter.enabled},
+             0.0F, track.filter.enabled, true},
             {"CUTOFF", formatNumber("%.0f HZ", track.filter.cutoffHz),
-             BarMode::Unipolar, cutoffRatio, track.filter.enabled},
+             BarMode::Unipolar, cutoffRatio, track.filter.enabled,
+             track.filter.enabled},
             {"ENGINE",
              track.synth.engineType == pocket::SynthEngineType::Plaits
                  ? "PLAITS"
@@ -2294,31 +2319,33 @@ std::vector<ScreenRow> soundRows(
              BarMode::Discrete,
              track.synth.engineType == pocket::SynthEngineType::Plaits ? 1.0F
                                                                       : 0.0F,
-             track.synth.engineType == pocket::SynthEngineType::Plaits},
+             track.synth.engineType == pocket::SynthEngineType::Plaits,
+             isSynth},
             {"MODEL",
              std::to_string(static_cast<int>(track.synth.model) + 1) + " " +
                  pocket::audio::plaitsModelName(track.synth.model),
              BarMode::Discrete,
              static_cast<float>(track.synth.model) /
                  static_cast<float>(pocket::TrackSynthSettings::ModelCount - 1),
-             track.synth.engineType == pocket::SynthEngineType::Plaits},
+             track.synth.engineType == pocket::SynthEngineType::Plaits,
+             isPlaits},
             {"PITCH", formatNumber("%.0f HZ", track.synth.pitchHz),
-             BarMode::Unipolar, pitchRatio, true},
+             BarMode::Unipolar, pitchRatio, true, isSynth},
             {"MORPH", formatNumber("%.0f%%", track.synth.morph * 100.0),
-             BarMode::Unipolar, track.synth.morph, true},
+             BarMode::Unipolar, track.synth.morph, true, isSynth},
             {"TIMBRE", formatNumber("%.0f%%", track.synth.timbre * 100.0),
-             BarMode::Unipolar, track.synth.timbre, true},
+             BarMode::Unipolar, track.synth.timbre, true, isSynth},
             {"COLOR", formatNumber("%.0f%%", track.synth.color * 100.0),
-             BarMode::Unipolar, track.synth.color, true},
+             BarMode::Unipolar, track.synth.color, true, isSynth},
             {"SAMPLE", soundSampleLabel(samplePath), BarMode::None, 0.0F,
-             track.instrument == pocket::InstrumentType::Sampler},
+             isSampler, isSampler},
             {"DLY TIME", std::to_string(effects.delayMilliseconds) + " MS",
-             BarMode::Unipolar, delayTimeRatio, true},
+             BarMode::Unipolar, delayTimeRatio, true, true},
             {"DLY FDBK",
              formatNumber("%.0f%%", effects.delayFeedback * 100.0),
-             BarMode::Unipolar, delayFbRatio, true},
+             BarMode::Unipolar, delayFbRatio, true, true},
             {"DLY MIX", formatNumber("%.0f%%", effects.delayMix * 100.0),
-             BarMode::Unipolar, effects.delayMix, true}};
+             BarMode::Unipolar, effects.delayMix, true, true}};
 }
 
 const char* waveformName(pocket::LfoWaveform w) {
@@ -3038,7 +3065,8 @@ int runSdlApp(const AppOptions& options) {
         return ui.state().modal == pocket::ui::Modal::None &&
                (ui.state().screen == pocket::ui::Screen::Sound ||
                 ui.state().screen == pocket::ui::Screen::Modulation ||
-                ui.state().screen == pocket::ui::Screen::Turing);
+                ui.state().screen == pocket::ui::Screen::Turing ||
+                ui.state().screen == pocket::ui::Screen::Mixer);
     };
     const auto handleControl = [&](pocket::ui::ControllerControl control,
                                    bool pressed) {

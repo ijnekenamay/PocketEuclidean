@@ -121,6 +121,12 @@ persist raw SDL or joystick button numbers in the shared profile.
   engine is PLAITS, and Morph remains a continuous parameter *inside* the
   selected model. Both engines run through the same per-track AD VCA and
   filter.
+  When the track instrument is SAMPLER, synthesis parameters (ENGINE, MODEL,
+  PITCH, MORPH, TIMBRE, COLOR) are disabled and rendered in subdued colors
+  without active bar fill; Confirm does not toggle engine type or model.
+  Conversely, when the track instrument is SYNTH, the SAMPLE row is disabled
+  and Confirm does not open the file browser. When FILTER is disabled, CUTOFF is
+  rendered subdued.
   The SAMPLE row shows the track's WAV file name or `BUILT-IN`. Long names are
   shortened to eight characters with a trailing `...` so the row keeps the same
   font scale as every other parameter. Confirm opens the SELECT WAV browser;
@@ -136,18 +142,25 @@ persist raw SDL or joystick button numbers in the shared profile.
   the frontend to report. `UiState::audioTrackSettings` retains the UI-side
   value while the callback owns the runtime setting; project snapshot/save
   code must include it. Back returns to EDIT.
-- MIXER: Up/Down selects one of eight tracks. Confirm cycles Volume, Pan,
-  Mute, Lock, Dice, Reverb Send, Delay Send, and Master Volume; Left/Right
-  adjusts the focused value. The header carries the `TRKn` badge and the
-  focused field name/value without repeating the track number. The MUTE button
-  in each strip shows the current mute state.
+- MIXER: Up/Down navigates between the eight track strips and the dedicated
+  master volume strip below (`TRK1` … `TRK8` and `MASTER`). Left/Right moves
+  between columns (Volume, Pan, Mute, Lock, Dice, Reverb Send, Delay Send); on
+  the master row, Left/Right focuses the master volume strip. Hold Ctrl
+  (keyboard) or A (gamepad) while pressing Left/Right to adjust the focused
+  value; Shift makes that change fine. A quick Confirm/A tap toggles MUTE or
+  LOCK, or rolls DICE on the selected track. The header displays the focused
+  column name and value, carrying a `TRKn` badge for tracks and `MST` for the
+  master strip.
   LOCK sits immediately right of MUTE as a padlock icon and toggles the track's
   S&H phrase lock (the same persistent flag as the TURING screen); its body is
   filled while engaged. DICE sits right of LOCK as a die-face icon and rolls a
-  fresh phrase seed on either Left or Right, because a die has no up or down;
+  fresh phrase seed on Confirm/A tap;
   it is the quick "change the mood" gesture while mixing. Both fields act on
   the selected track only.
-  The global MuteToggle action remains a one-action shortcut. Track volume, pan,
+  The global MuteToggle action toggles the selected track (ignored while on
+  the master strip). Q/E (or controller shoulders L1/R1) changes the selected
+  track and immediately returns focus from the master strip to the focused track
+  strip. Track volume, pan,
   mute, and both effect sends are project state; master volume is a global
   system audio preference. Reverb and delay sends are post-fader (after track
   volume and pan) and are processed by dedicated effect buses before the

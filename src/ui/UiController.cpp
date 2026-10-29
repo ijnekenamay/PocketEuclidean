@@ -11,7 +11,7 @@ constexpr std::size_t EditFieldCount = 6;
 constexpr std::size_t SoundFieldCount = 14;
 constexpr std::size_t ModulationFieldCount = 13;
 constexpr std::size_t TuringFieldCount = 13;
-constexpr std::size_t MixerFieldCount = 8;
+constexpr std::size_t MixerFieldCount = 7;
 constexpr std::size_t SettingsCategoryCount = 7;
 constexpr std::size_t ProjectMenuItemCount = 5;
 // Two-column parameter screens. Keep these in sync with the firstColumnRows
@@ -59,14 +59,23 @@ void UiController::dispatch(ActionEvent event) {
     }
 
     if (event.action == Action::TrackPrevious) {
+        if (state_.screen == Screen::Mixer && state_.mixerMasterRow) {
+            state_.mixerMasterRow = false;
+        }
         selectTrack(-1);
         return;
     }
     if (event.action == Action::TrackNext) {
+        if (state_.screen == Screen::Mixer && state_.mixerMasterRow) {
+            state_.mixerMasterRow = false;
+        }
         selectTrack(1);
         return;
     }
     if (event.action == Action::MuteToggle) {
+        if (state_.screen == Screen::Mixer && state_.mixerMasterRow) {
+            return;
+        }
         const auto track = audioSettings(state_.selectedTrack);
         if (!postAudioParameter(audio::AudioParameter::TrackMute,
                                 state_.selectedTrack,
@@ -323,15 +332,23 @@ void UiController::dispatchSound(ActionEvent event) {
         }
         break;
     }
-    case Action::Confirm:
-        if (state_.soundField == SoundField::FilterEnabled ||
-            state_.soundField == SoundField::EngineType ||
-            state_.soundField == SoundField::Model) {
+    case Action::Confirm: {
+        const auto instrument =
+            sequencer_.track(state_.selectedTrack).instrument;
+        if (state_.soundField == SoundField::FilterEnabled) {
             changeSoundValue(1, false);
+        } else if (state_.soundField == SoundField::EngineType ||
+                   state_.soundField == SoundField::Model) {
+            if (instrument == InstrumentType::Synth) {
+                changeSoundValue(1, false);
+            }
         } else if (state_.soundField == SoundField::Sample) {
-            openSampleBrowser();
+            if (instrument == InstrumentType::Sampler) {
+                openSampleBrowser();
+            }
         }
         break;
+    }
     case Action::Back:
         state_.screen = Screen::Edit;
         break;
@@ -903,118 +920,54 @@ void UiController::dispatchModulation(ActionEvent event) {
 void UiController::dispatchMixer(ActionEvent event) {
     switch (event.action) {
     case Action::NavUp:
-        selectTrack(-1);
+    case Action::NavDown: {
+        // Rows are TRK1..TRK8 followed by the master strip, so up/down moves
+        // the same way as the row movement on the parameter screens.
+        const bool down = event.action == Action::NavDown;
+        if (state_.mixerMasterRow) {
+            state_.mixerMasterRow = false;
+            state_.selectedTrack = down ? 0 : TrackCount - 1;
+        } else if (down) {
+            if (state_.selectedTrack + 1 >= TrackCount) {
+                state_.mixerMasterRow = true;
+            } else {
+                ++state_.selectedTrack;
+            }
+        } else if (state_.selectedTrack == 0) {
+            state_.mixerMasterRow = true;
+        } else {
+            --state_.selectedTrack;
+        }
         break;
-    case Action::NavDown:
-        selectTrack(1);
-        break;
+    }
     case Action::NavLeft:
     case Action::NavRight: {
+        // Left/right walks the columns of the focused row. Values need A (or
+        // Ctrl) held, exactly like SOUND, MODULATION, and TURING.
         const int direction = event.action == Action::NavRight ? 1 : -1;
-        const bool fine = event.fine || state_.fineAdjust;
-        const auto track = audioSettings(state_.selectedTrack);
-        switch (state_.mixerField) {
-        case MixerField::Volume: {
-            const int step = fine ? 1 : 5;
-            const int volume = static_cast<int>(track.volume) + direction * step;
-            const auto bounded = static_cast<std::uint8_t>(
-                volume < 0 ? 0 : volume > 100 ? 100 : volume);
-            if (!postAudioParameter(audio::AudioParameter::TrackVolume,
-                                    state_.selectedTrack,
-                                    static_cast<float>(bounded))) {
-                state_.audioParameterRejected = true;
-                break;
-            }
-            if (audioParameterQueue_ != nullptr ||
-                sequencer_.setVolume(state_.selectedTrack, bounded)) {
-                state_.modified = true;
-            }
-            break;
-        }
-        case MixerField::Pan: {
-            const float step = fine ? 0.01F : 0.1F;
-            const float pan = std::clamp(track.pan + direction * step, -1.0F, 1.0F);
-            if (!postAudioParameter(audio::AudioParameter::TrackPan,
-                                    state_.selectedTrack, pan)) {
-                state_.audioParameterRejected = true;
-                break;
-            }
-            if (audioParameterQueue_ != nullptr ||
-                sequencer_.setPan(state_.selectedTrack, pan)) {
-                state_.modified = true;
-            }
-            break;
-        }
-        case MixerField::Mute:
-            if (!postAudioParameter(audio::AudioParameter::TrackMute,
-                                    state_.selectedTrack,
-                                    track.muted ? 0.0F : 1.0F)) {
-                state_.audioParameterRejected = true;
-                break;
-            }
-            if (audioParameterQueue_ == nullptr) {
-                sequencer_.setMuted(state_.selectedTrack, !track.muted);
-            }
-            state_.modified = true;
-            break;
-        case MixerField::Lock: {
-            auto config = sequencer_.track(state_.selectedTrack).turing;
-            config.locked = !config.locked;
-            if (sequencer_.setTuring(state_.selectedTrack, config)) {
-                state_.modified = true;
-            }
-            break;
-        }
-        case MixerField::Dice:
-            // A dice has no up or down: either direction rolls a new phrase.
-            (void)rollTuringSeed();
-            break;
-        case MixerField::ReverbSend:
-        case MixerField::DelaySend: {
-            const bool reverb = state_.mixerField == MixerField::ReverbSend;
-            const float current = reverb ? track.reverbSend : track.delaySend;
-            const float step = fine ? 0.01F : 0.05F;
-            const float value = std::clamp(current + direction * step, 0.0F, 1.0F);
-            if (!postAudioParameter(
-                    reverb ? audio::AudioParameter::TrackReverbSend
-                           : audio::AudioParameter::TrackDelaySend,
-                    state_.selectedTrack, value)) {
-                state_.audioParameterRejected = true;
-                break;
-            }
-            if (audioParameterQueue_ != nullptr) {
-                state_.modified = true;
-            } else if (reverb ? sequencer_.setReverbSend(state_.selectedTrack,
-                                                         value)
-                              : sequencer_.setDelaySend(state_.selectedTrack,
-                                                        value)) {
-                state_.modified = true;
-            }
-            break;
-        }
-        case MixerField::MasterVolume: {
-            const int step = fine ? 1 : 5;
-            const int volume =
-                static_cast<int>(systemSettings_.audio.masterVolumePercent) +
-                direction * step;
-            const auto bounded = static_cast<std::uint8_t>(
-                volume < 0 ? 0 : volume > 100 ? 100 : volume);
-            if (!postAudioParameter(audio::AudioParameter::MasterVolume, 0,
-                                    static_cast<float>(bounded))) {
-                state_.audioParameterRejected = true;
-                break;
-            }
-            systemSettings_.audio.masterVolumePercent = bounded;
-            break;
-        }
+        if (event.edit) {
+            changeMixerValue(direction, event.fine || state_.fineAdjust);
+        } else if (!state_.mixerMasterRow) {
+            state_.mixerField = static_cast<MixerField>(wrapIndex(
+                static_cast<int>(state_.mixerField) + direction,
+                MixerFieldCount));
         }
         break;
     }
     case Action::Confirm:
-        state_.mixerField = static_cast<MixerField>(wrapIndex(
-            static_cast<int>(state_.mixerField) + 1, MixerFieldCount));
+        // A tap flips the switches, matching TURING. The bars only move while
+        // A or Ctrl is held with left/right.
+        if (!state_.mixerMasterRow &&
+            (state_.mixerField == MixerField::Mute ||
+             state_.mixerField == MixerField::Lock ||
+             state_.mixerField == MixerField::Dice)) {
+            changeMixerValue(1, false);
+        }
         break;
     case Action::MuteToggle: {
+        if (state_.mixerMasterRow) {
+            break;
+        }
         const auto track = audioSettings(state_.selectedTrack);
         if (!postAudioParameter(audio::AudioParameter::TrackMute,
                                 state_.selectedTrack,
@@ -1046,6 +999,106 @@ void UiController::dispatchMixer(ActionEvent event) {
         break;
     default:
         break;
+    }
+}
+
+void UiController::changeMixerValue(int direction, bool fine) {
+    if (state_.mixerMasterRow) {
+        const int step = fine ? 1 : 5;
+        const int volume =
+            static_cast<int>(systemSettings_.audio.masterVolumePercent) +
+            direction * step;
+        const auto bounded = static_cast<std::uint8_t>(
+            volume < 0 ? 0 : volume > 100 ? 100 : volume);
+        if (!postAudioParameter(audio::AudioParameter::MasterVolume, 0,
+                                static_cast<float>(bounded))) {
+            state_.audioParameterRejected = true;
+            return;
+        }
+        systemSettings_.audio.masterVolumePercent = bounded;
+        return;
+    }
+
+    const auto track = audioSettings(state_.selectedTrack);
+    switch (state_.mixerField) {
+    case MixerField::Volume: {
+        const int step = fine ? 1 : 5;
+        const int volume = static_cast<int>(track.volume) + direction * step;
+        const auto bounded = static_cast<std::uint8_t>(
+            volume < 0 ? 0 : volume > 100 ? 100 : volume);
+        if (!postAudioParameter(audio::AudioParameter::TrackVolume,
+                                state_.selectedTrack,
+                                static_cast<float>(bounded))) {
+            state_.audioParameterRejected = true;
+            break;
+        }
+        if (audioParameterQueue_ != nullptr ||
+            sequencer_.setVolume(state_.selectedTrack, bounded)) {
+            state_.modified = true;
+        }
+        break;
+    }
+    case MixerField::Pan: {
+        const float step = fine ? 0.01F : 0.1F;
+        const float pan = std::clamp(track.pan + direction * step, -1.0F, 1.0F);
+        if (!postAudioParameter(audio::AudioParameter::TrackPan,
+                                state_.selectedTrack, pan)) {
+            state_.audioParameterRejected = true;
+            break;
+        }
+        if (audioParameterQueue_ != nullptr ||
+            sequencer_.setPan(state_.selectedTrack, pan)) {
+            state_.modified = true;
+        }
+        break;
+    }
+    case MixerField::Mute:
+        if (!postAudioParameter(audio::AudioParameter::TrackMute,
+                                state_.selectedTrack,
+                                track.muted ? 0.0F : 1.0F)) {
+            state_.audioParameterRejected = true;
+            break;
+        }
+        if (audioParameterQueue_ == nullptr) {
+            sequencer_.setMuted(state_.selectedTrack, !track.muted);
+        }
+        state_.modified = true;
+        break;
+    case MixerField::Lock: {
+        auto config = sequencer_.track(state_.selectedTrack).turing;
+        config.locked = !config.locked;
+        if (sequencer_.setTuring(state_.selectedTrack, config)) {
+            state_.modified = true;
+        }
+        break;
+    }
+    case MixerField::Dice:
+        // A dice has no up or down: either direction rolls a new phrase.
+        (void)rollTuringSeed();
+        break;
+    case MixerField::ReverbSend:
+    case MixerField::DelaySend: {
+        const bool reverb = state_.mixerField == MixerField::ReverbSend;
+        const float current = reverb ? track.reverbSend : track.delaySend;
+        const float step = fine ? 0.01F : 0.05F;
+        const float value = std::clamp(current + direction * step, 0.0F, 1.0F);
+        if (!postAudioParameter(
+                reverb ? audio::AudioParameter::TrackReverbSend
+                       : audio::AudioParameter::TrackDelaySend,
+                state_.selectedTrack, value)) {
+            state_.audioParameterRejected = true;
+            break;
+        }
+        if (audioParameterQueue_ != nullptr) {
+            state_.modified = true;
+        } else if (reverb ? sequencer_.setReverbSend(state_.selectedTrack,
+                                                     value)
+                          : sequencer_.setDelaySend(state_.selectedTrack,
+                                                    value)) {
+            state_.modified = true;
+        }
+        break;
+    }
     }
 }
 

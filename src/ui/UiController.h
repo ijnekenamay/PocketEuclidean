@@ -65,8 +65,7 @@ enum class MixerField : std::uint8_t {
     Lock,
     Dice,
     ReverbSend,
-    DelaySend,
-    MasterVolume
+    DelaySend
 };
 
 enum class SoundField : std::uint8_t {
@@ -164,6 +163,9 @@ struct UiState {
     ModulationField modulationField = ModulationField::Enabled;
     TuringField turingField = TuringField::Enabled;
     MixerField mixerField = MixerField::Volume;
+    // MIXER rows are the eight tracks plus the master strip. The master strip
+    // is a row, not a column, so up/down reaches it after TRK8.
+    bool mixerMasterRow = false;
     platform::SettingsCategory systemCategory =
         platform::SettingsCategory::ClockAndTransport;
     ProjectMenuItem projectMenuItem = ProjectMenuItem::NewProject;
@@ -294,6 +296,7 @@ private:
     void dispatchEdit(ActionEvent event);
     void dispatchSound(ActionEvent event);
     void dispatchMixer(ActionEvent event);
+    void changeMixerValue(int direction, bool fine);
     void dispatchModulation(ActionEvent event);
     void dispatchTuring(ActionEvent event);
     void dispatchSystem(ActionEvent event);
