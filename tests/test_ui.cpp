@@ -1217,6 +1217,13 @@ void testScreensAndEditRanges() {
     modulationUi.dispatch({Action::NavLeft});
     expect(!modulationUi.systemSettings().midi.enabled,
            "MIDI category disables input on left");
+    modulationUi.dispatch({Action::Confirm});
+    expect(modulationUi.systemSettings().midi.enabled &&
+               modulationUi.state().modified == dirtyBeforeMidi,
+           "Confirm toggles MIDI on without changing project dirty state");
+    modulationUi.dispatch({Action::Confirm});
+    expect(!modulationUi.systemSettings().midi.enabled,
+           "Confirm toggles MIDI back off");
     expect(platform::isValid(modulationUi.systemSettings()),
            "UI exposes a valid separate system settings model");
 

@@ -221,11 +221,11 @@ persist raw SDL or joystick button numbers in the shared profile.
   Display, Project/Storage, and About/Diagnostics categories. Settings are
   persisted in the versioned v4 system file, separately from project data. In
   the Clock/Transport category, Left/Right changes the initial tempo. In the
-  MIDI category, Left/Right disables/enables MIDI clock and transport input;
-  the row shows `OFF`, `IN+OUT`, `IN`, `OUT`, or `NO DEV` when no port could be
-  opened. This preference is independent of project dirty state. The controller
-  can skip categories unsupported by its supplied platform capabilities (Linux /
-  PortMaster hides MIDI).
+  MIDI category, Left/Right disables/enables MIDI clock and transport input,
+  and Confirm/A toggles it as well; the row shows `OFF`, `IN+OUT`, `IN`, `OUT`,
+  or `NO DEV` when no port could be opened. This preference is independent of
+  project dirty state. The controller can skip categories unsupported by its
+  supplied platform capabilities (Linux / PortMaster hides MIDI).
 - Display category: Left/Right cycles the global theme (Quiet Dark → Warm
   Paper → High Contrast → Neon RGB → Outrun → Amber CRT → Phosphor → VGA DOS →
   Quiet Dark); this preference is also independent of project dirty state.

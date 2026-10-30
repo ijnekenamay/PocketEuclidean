@@ -3737,7 +3737,10 @@ int runSdlApp(const AppOptions& options) {
                                       midiOpen && midiBackend->hasOutput()),
                            static_cast<std::size_t>(ui.state().systemCategory),
                            width, height, 0, std::nullopt, false, 1, 0, {},
-                           "UP/DN:CATEGORY  LEFT/RIGHT:CHANGE  TAB:SCREEN  ESC:BACK",
+                           ui.state().systemCategory ==
+                                   pocket::platform::SettingsCategory::Midi
+                               ? "UP/DN:CATEGORY  A/ENTER:TOGGLE  LEFT/RIGHT:OFF/ON  TAB:SCREEN"
+                               : "UP/DN:CATEGORY  LEFT/RIGHT:CHANGE  TAB:SCREEN  ESC:BACK",
                            transport);
                 break;
             }

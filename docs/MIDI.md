@@ -138,7 +138,8 @@ theme 0
 
 ## SYSTEM 画面
 
-- CLOCK の次が MIDI。Left / Right で OFF / ON を切り替える。
+- CLOCK の次が MIDI。Left / Right で OFF / ON を切り替える。Confirm / A でも
+  トグルできる。
 - 表示は `OFF`、入力と出力の両方が開けば `IN+OUT`、入力のみ `IN`、
   出力のみ `OUT`、有効だがどちらも開けない場合 `NO DEV`。
 - ポートが後から現れる場合に備え、開けない間は 2 秒ごとに再試行する。

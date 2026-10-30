@@ -1175,6 +1175,11 @@ void UiController::dispatchSystem(ActionEvent event) {
                 systemSettings_.display.theme = *nextTheme;
             }
         }
+    } else if (event.action == Action::Confirm &&
+               state_.systemCategory == platform::SettingsCategory::Midi) {
+        // Confirm/A is the natural toggle on the other screens, so accept it
+        // here as well instead of requiring Left/Right only.
+        systemSettings_.midi.enabled = !systemSettings_.midi.enabled;
     } else if (event.action == Action::NavUp ||
                event.action == Action::NavDown) {
         const int direction = event.action == Action::NavDown ? 1 : -1;
