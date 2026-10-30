@@ -69,6 +69,8 @@ public:
     virtual void close() noexcept = 0;
     virtual bool poll(MidiEvent& event) noexcept = 0;
     virtual bool send(const MidiEvent& event) noexcept = 0;
+    virtual bool hasInput() const noexcept { return false; }
+    virtual bool hasOutput() const noexcept { return false; }
     // Human-readable port name for diagnostics; valid until close().
     virtual const char* name() const noexcept { return ""; }
 };

@@ -174,7 +174,9 @@ bool Sequencer::setMuted(std::size_t index, bool muted) {
 }
 
 bool Sequencer::setInstrument(std::size_t index, InstrumentType instrument) {
-    if (index >= TrackCount) {
+    if (index >= TrackCount ||
+        static_cast<std::uint8_t>(instrument) >
+            static_cast<std::uint8_t>(InstrumentType::Midi)) {
         return false;
     }
     tracks_[index].instrument = instrument;

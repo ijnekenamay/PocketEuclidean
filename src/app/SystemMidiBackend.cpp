@@ -53,39 +53,53 @@ public:
 
     bool open() noexcept override {
         close();
-        if (deviceIndex_ >= midiInGetNumDevs()) {
-            return false;
-        }
-        MIDIINCAPSW caps{};
-        if (midiInGetDevCapsW(deviceIndex_, &caps, sizeof(caps)) ==
-            MMSYSERR_NOERROR) {
-            copyName(caps.szPname);
-        }
-        const auto result = midiInOpen(
-            &input_, deviceIndex_,
-            reinterpret_cast<DWORD_PTR>(&WinMmMidiBackend::callback),
-            reinterpret_cast<DWORD_PTR>(this), CALLBACK_FUNCTION);
-        if (result != MMSYSERR_NOERROR) {
-            input_ = nullptr;
-            return false;
-        }
-        if (midiInStart(input_) != MMSYSERR_NOERROR) {
-            midiInClose(input_);
-            input_ = nullptr;
-            return false;
-        }
-        // Clock output is optional: a machine may expose an input port but no
-        // matching output port. Input remains usable when this fails.
-        if (deviceIndex_ < midiOutGetNumDevs()) {
-            if (midiOutOpen(&output_, deviceIndex_, 0, 0, CALLBACK_NULL) !=
+        bool opened = false;
+        lock();
+        if (deviceIndex_ < midiInGetNumDevs()) {
+            MIDIINCAPSW caps{};
+            if (midiInGetDevCapsW(deviceIndex_, &caps, sizeof(caps)) ==
                 MMSYSERR_NOERROR) {
+                copyName(caps.szPname);
+            }
+            const auto result = midiInOpen(
+                &input_, deviceIndex_,
+                reinterpret_cast<DWORD_PTR>(&WinMmMidiBackend::callback),
+                reinterpret_cast<DWORD_PTR>(this), CALLBACK_FUNCTION);
+            if (result == MMSYSERR_NOERROR) {
+                if (midiInStart(input_) == MMSYSERR_NOERROR) {
+                    opened = true;
+                } else {
+                    midiInClose(input_);
+                    input_ = nullptr;
+                }
+            } else {
+                input_ = nullptr;
+            }
+        }
+        // Output is independent from input: a machine may expose only one of
+        // the two. Clock output must still work on an output-only port.
+        if (deviceIndex_ < midiOutGetNumDevs()) {
+            if (midiOutOpen(&output_, deviceIndex_, 0, 0, CALLBACK_NULL) ==
+                MMSYSERR_NOERROR) {
+                opened = true;
+                if (name_[0] == '\0') {
+                    MIDIOUTCAPSW caps{};
+                    if (midiOutGetDevCapsW(deviceIndex_, &caps,
+                                           sizeof(caps)) ==
+                        MMSYSERR_NOERROR) {
+                        copyName(caps.szPname);
+                    }
+                }
+            } else {
                 output_ = nullptr;
             }
         }
-        return true;
+        unlock();
+        return opened;
     }
 
     void close() noexcept override {
+        lock();
         if (input_ != nullptr) {
             midiInStop(input_);
             midiInReset(input_);
@@ -99,6 +113,8 @@ public:
         }
         readIndex_.store(0, std::memory_order_relaxed);
         writeIndex_.store(0, std::memory_order_relaxed);
+        name_[0] = '\0';
+        unlock();
     }
 
     bool poll(platform::MidiEvent& event) noexcept override {
@@ -113,37 +129,48 @@ public:
     }
 
     bool send(const platform::MidiEvent& event) noexcept override {
-        if (output_ == nullptr) {
+        // The audio thread may emit clock and notes while the UI thread
+        // toggles MIDI. A try-lock keeps the audio path non-blocking; a close
+        // in progress drops the event instead of racing the handle.
+        if (!tryLock()) {
             return false;
         }
-        DWORD message = 0;
-        switch (event.type) {
-        case platform::MidiEvent::Type::Clock:
-            message = 0xF8;
-            break;
-        case platform::MidiEvent::Type::Start:
-            message = 0xFA;
-            break;
-        case platform::MidiEvent::Type::Stop:
-            message = 0xFC;
-            break;
-        case platform::MidiEvent::Type::Continue:
-            message = 0xFB;
-            break;
-        case platform::MidiEvent::Type::NoteOn:
-            message = 0x90U | ((event.channel - 1) & 0x0FU);
-            break;
-        case platform::MidiEvent::Type::NoteOff:
-            message = 0x80U | ((event.channel - 1) & 0x0FU);
-            break;
-        case platform::MidiEvent::Type::ControlChange:
-            message = 0xB0U | ((event.channel - 1) & 0x0FU);
-            break;
+        bool sent = false;
+        if (output_ != nullptr) {
+            DWORD message = 0;
+            switch (event.type) {
+            case platform::MidiEvent::Type::Clock:
+                message = 0xF8;
+                break;
+            case platform::MidiEvent::Type::Start:
+                message = 0xFA;
+                break;
+            case platform::MidiEvent::Type::Stop:
+                message = 0xFC;
+                break;
+            case platform::MidiEvent::Type::Continue:
+                message = 0xFB;
+                break;
+            case platform::MidiEvent::Type::NoteOn:
+                message = 0x90U | ((event.channel - 1) & 0x0FU);
+                break;
+            case platform::MidiEvent::Type::NoteOff:
+                message = 0x80U | ((event.channel - 1) & 0x0FU);
+                break;
+            case platform::MidiEvent::Type::ControlChange:
+                message = 0xB0U | ((event.channel - 1) & 0x0FU);
+                break;
+            }
+            message |= static_cast<DWORD>(event.data1 & 0x7FU) << 8U;
+            message |= static_cast<DWORD>(event.data2 & 0x7FU) << 16U;
+            sent = midiOutShortMsg(output_, message) == MMSYSERR_NOERROR;
         }
-        message |= static_cast<DWORD>(event.data1 & 0x7FU) << 8U;
-        message |= static_cast<DWORD>(event.data2 & 0x7FU) << 16U;
-        return midiOutShortMsg(output_, message) == MMSYSERR_NOERROR;
+        unlock();
+        return sent;
     }
+
+    bool hasInput() const noexcept override { return input_ != nullptr; }
+    bool hasOutput() const noexcept override { return output_ != nullptr; }
 
     const char* name() const noexcept override { return name_.data(); }
 
@@ -226,6 +253,19 @@ private:
     std::array<platform::MidiEvent, EventCapacity> events_{};
     alignas(64) std::atomic<std::uint32_t> writeIndex_{0};
     alignas(64) std::atomic<std::uint32_t> readIndex_{0};
+    // Guards handle open/close against audio-thread sends. Never held for long.
+    mutable std::atomic_flag ioLock_ = ATOMIC_FLAG_INIT;
+
+    void lock() const noexcept {
+        while (ioLock_.test_and_set(std::memory_order_acquire)) {
+        }
+    }
+    bool tryLock() const noexcept {
+        return !ioLock_.test_and_set(std::memory_order_acquire);
+    }
+    void unlock() const noexcept {
+        ioLock_.clear(std::memory_order_release);
+    }
 };
 
 #endif // _WIN32
@@ -252,23 +292,44 @@ std::unique_ptr<platform::IMidiBackend> makeSystemMidiBackend(
 
 void listSystemMidiInputs(std::ostream& out) {
 #ifdef _WIN32
-    const auto count = midiInGetNumDevs();
-    if (count == 0) {
+    const auto inputs = midiInGetNumDevs();
+    if (inputs == 0) {
         out << "No MIDI input ports found.\n";
-        return;
-    }
-    for (UINT index = 0; index < count; ++index) {
-        MIDIINCAPSW caps{};
-        if (midiInGetDevCapsW(index, &caps, sizeof(caps)) != MMSYSERR_NOERROR) {
-            continue;
+    } else {
+        out << "MIDI input ports:\n";
+        for (UINT index = 0; index < inputs; ++index) {
+            MIDIINCAPSW caps{};
+            if (midiInGetDevCapsW(index, &caps, sizeof(caps)) !=
+                MMSYSERR_NOERROR) {
+                continue;
+            }
+            char name[96] = {};
+            WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, name,
+                                static_cast<int>(sizeof(name)), nullptr,
+                                nullptr);
+            out << index << ": " << name << '\n';
         }
-        char name[96] = {};
-        WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, name,
-                            static_cast<int>(sizeof(name)), nullptr, nullptr);
-        out << index << ": " << name << '\n';
+    }
+    const auto outputs = midiOutGetNumDevs();
+    if (outputs == 0) {
+        out << "No MIDI output ports found.\n";
+    } else {
+        out << "MIDI output ports:\n";
+        for (UINT index = 0; index < outputs; ++index) {
+            MIDIOUTCAPSW caps{};
+            if (midiOutGetDevCapsW(index, &caps, sizeof(caps)) !=
+                MMSYSERR_NOERROR) {
+                continue;
+            }
+            char name[96] = {};
+            WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, name,
+                                static_cast<int>(sizeof(name)), nullptr,
+                                nullptr);
+            out << index << ": " << name << '\n';
+        }
     }
 #else
-    out << "MIDI input is not supported on this platform.\n";
+    out << "MIDI is not supported on this platform.\n";
 #endif
 }
 

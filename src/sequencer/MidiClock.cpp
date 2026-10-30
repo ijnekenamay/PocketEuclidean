@@ -153,4 +153,40 @@ bool MidiClockFollower::takeTempoChanged() noexcept {
     return value;
 }
 
+void MidiClockGenerator::reset() noexcept {
+    framesUntilNextPulse_ = 0.0;
+    sampleRate_ = 0;
+    pulseCount_ = 0;
+}
+
+void MidiClockGenerator::process(std::uint32_t frameCount,
+                                 std::uint32_t sampleRate,
+                                 double bpm,
+                                 PulseCallback callback,
+                                 void* userData) noexcept {
+    if (frameCount == 0 || sampleRate == 0) {
+        return;
+    }
+    if (sampleRate != sampleRate_) {
+        sampleRate_ = sampleRate;
+        framesUntilNextPulse_ = 0.0;
+    }
+    const double safeBpm = std::clamp(bpm, 20.0, 400.0);
+    const double framesPerPulse =
+        static_cast<double>(sampleRate) * 60.0 / (safeBpm * 24.0);
+    if (!(framesPerPulse > 0.0)) {
+        return;
+    }
+    while (framesUntilNextPulse_ < static_cast<double>(frameCount)) {
+        const auto offset =
+            static_cast<std::uint32_t>(std::ceil(framesUntilNextPulse_));
+        if (callback != nullptr) {
+            callback(userData, offset);
+        }
+        ++pulseCount_;
+        framesUntilNextPulse_ += framesPerPulse;
+    }
+    framesUntilNextPulse_ -= static_cast<double>(frameCount);
+}
+
 } // namespace pocket

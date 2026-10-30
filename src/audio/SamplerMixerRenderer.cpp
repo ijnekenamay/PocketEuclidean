@@ -151,6 +151,11 @@ bool SamplerMixerRenderer::trigger(const TickResult& tick,
             continue;
         }
         const auto& state = sequencer_.track(track);
+        if (state.instrument == InstrumentType::Midi) {
+            // MIDI tracks are rendered by the MIDI output path, not by the
+            // internal voices or envelope.
+            continue;
+        }
         targetPitchOffset_[track] =
             static_cast<float>(tick.pitchOffsets[track]);
         if (state.turing.glide == 0) {
@@ -291,6 +296,18 @@ bool SamplerMixerRenderer::render(float* interleavedStereo,
     updatePitchSmoothing(frameCount, sampleRate);
 
     for (std::size_t track = 0; track < TrackCount; ++track) {
+        if (sequencer_.track(track).instrument == InstrumentType::Midi) {
+            envelopes_[track].reset();
+            voices_.stopTrack(track);
+            if (synthVoices_ != nullptr) {
+                synthVoices_->stopTrack(track);
+            }
+            for (std::uint32_t frame = 0; frame < frameCount; ++frame) {
+                trackBuffers_[track][frame] = 0.0F;
+            }
+            inputs_[track] = {trackBuffers_[track].data(), nullptr};
+            continue;
+        }
         if (!envelopes_[track].isActive()) {
             for (std::uint32_t frame = 0; frame < frameCount; ++frame) {
                 trackBuffers_[track][frame] = 0.0F;

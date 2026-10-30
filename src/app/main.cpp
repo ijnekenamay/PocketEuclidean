@@ -188,8 +188,8 @@ bool parseArguments(int argc, char** argv, AppOptions& options) {
                 << "                    m/q/e/tab/pageup/pagedown/p/f1/shift/\n"
                 << "                    ctrl;\n"
                 << "                    actions: tap/down/up/repeat)\n"
-                << "  --midi-list       List MIDI input ports and exit\n"
-                << "  --midi-device <n> MIDI input port index (0-15)\n";
+                << "  --midi-list       List MIDI input and output ports and exit\n"
+                << "  --midi-device <n> MIDI port index (0-15)\n";
             return false;
         }
         std::cerr << "Unknown argument: " << arg << '\n';
@@ -548,8 +548,21 @@ void drawFlatBar(SDL_Renderer* renderer,
 // Abstract geometric instrument & track status icon:
 // - Sampler: 5 symmetrical acoustic spectrum / wave bars (35%, 70%, 100%, 70%, 35%)
 // - Synth: Concentric geometric oscillator frame with a floating inner core
+// - MIDI: A note glyph (stem, head, flag) for external note output
 // - Selected: Luminous left vertical accent bar + accent-tinted glyph
 // - Muted: Dimmed hollow/split motif with a horizontal mute cut
+const char* instrumentName(pocket::InstrumentType instrument) {
+    switch (instrument) {
+    case pocket::InstrumentType::Sampler:
+        return "SAMPLER";
+    case pocket::InstrumentType::Synth:
+        return "SYNTH";
+    case pocket::InstrumentType::Midi:
+        return "MIDI";
+    }
+    return "?";
+}
+
 void drawInstrumentGlyph(SDL_Renderer* renderer,
                          const pocket::ui::ThemePalette& palette,
                          pocket::InstrumentType instrument,
@@ -595,7 +608,7 @@ void drawInstrumentGlyph(SDL_Renderer* renderer,
             const std::int32_t by = y + (height - bh) / 2;
             fillRect(renderer, bx, by, barW, bh);
         }
-    } else {
+    } else if (instrument == pocket::InstrumentType::Synth) {
         // Synth: Concentric geometric oscillator square + inner resonant core
         const std::int32_t stroke = std::max<std::int32_t>(2, iconSize / 7);
         setColor(renderer, glyphColor);
@@ -613,6 +626,18 @@ void drawInstrumentGlyph(SDL_Renderer* renderer,
             setColor(renderer, selected ? palette.primary : palette.accent);
         }
         fillRect(renderer, cx, cy, coreSize, coreSize);
+    } else {
+        // MIDI: a compact note glyph, read as external note output.
+        const std::int32_t stroke = std::max<std::int32_t>(2, iconSize / 8);
+        const std::int32_t head = std::max<std::int32_t>(4, iconSize / 3);
+        const std::int32_t stemX = ix + iconSize - stroke - 1;
+        setColor(renderer, glyphColor);
+        // Stem and flag.
+        fillRect(renderer, stemX, iy + 2, stroke, iconSize - 4);
+        fillRect(renderer, stemX - iconSize / 3, iy + 2, iconSize / 3, stroke);
+        // Filled note head at the foot of the stem.
+        fillRect(renderer, stemX - head + stroke, iy + iconSize - head - 1,
+                 head, head);
     }
 
     if (muted) {
@@ -1255,12 +1280,17 @@ void drawEditEuclideanExplorer(SDL_Renderer* renderer,
             fillRect(renderer, innerX + 2, sy + 2, 2, std::max<std::int32_t>(1, sh - 2));
             fillRect(renderer, innerX + 6, sy + 1, 2, sh);
             fillRect(renderer, innerX + 10, sy + 2, 2, std::max<std::int32_t>(1, sh - 2));
-        } else {
+        } else if (tr.instrument == pocket::InstrumentType::Synth) {
             fillRect(renderer, innerX + 2, sy + 1, 10, sh);
             if (sh >= 5) {
                 setColor(renderer, palette.background);
                 fillRect(renderer, innerX + 4, sy + 2, 6, sh - 2);
             }
+        } else {
+            // MIDI: miniature note (stem + head).
+            fillRect(renderer, innerX + 9, sy + 1, 2, std::max<std::int32_t>(3, sh - 1));
+            fillRect(renderer, innerX + 5, sy + std::max<std::int32_t>(1, sh - 3),
+                     5, 3);
         }
 
         bool trJitterValid = false;
@@ -1318,6 +1348,7 @@ void drawSoundVisualizer(SDL_Renderer* renderer,
     const std::int32_t cardH = height;
     const bool plaits =
         track.synth.engineType == pocket::SynthEngineType::Plaits;
+    const bool midi = track.instrument == pocket::InstrumentType::Midi;
     // Seconds-scale drift so the preview moves only while transport runs.
     const float drift =
         playing ? static_cast<float>(nowMs % 8000) / 8000.0F : 0.0F;
@@ -1410,8 +1441,10 @@ void drawSoundVisualizer(SDL_Renderer* renderer,
         fillRect(renderer, cx, y, cardW, cardH);
 
         const std::string title =
-            std::string(plaits ? "PLAITS  " : "VA SYNTH  ") +
-            formatNumber("%.0f HZ", track.synth.pitchHz);
+            midi ? std::string("MIDI OUT  ") +
+                       formatNumber("%.0f HZ", track.synth.pitchHz)
+                 : std::string(plaits ? "PLAITS  " : "VA SYNTH  ") +
+                       formatNumber("%.0f HZ", track.synth.pitchHz);
         drawText(renderer, title, cx + 8, y + 4, cardW - 16, 14,
                  palette.accent, 1);
 
@@ -1424,6 +1457,22 @@ void drawSoundVisualizer(SDL_Renderer* renderer,
         setColor(renderer, blendColor(palette.background, palette.subdued, 0.4F));
         fillRect(renderer, plotX, midY, plotW, 1);
 
+        if (midi) {
+            // Five-pin DIN socket: a readable stand-in for the external
+            // destination when the track is not rendering a waveform.
+            const std::int32_t dot = std::max<std::int32_t>(3, plotH / 9);
+            const std::int32_t cx0 = plotX + plotW / 2;
+            const std::int32_t cy0 = plotY + plotH / 2;
+            const std::int32_t spread = std::max<std::int32_t>(10, plotW / 5);
+            setColor(renderer, palette.accent);
+            fillRect(renderer, cx0 - spread - dot / 2, cy0 + dot, dot, dot);
+            fillRect(renderer, cx0 - dot / 2, cy0 + dot + dot / 2, dot, dot);
+            fillRect(renderer, cx0 + spread - dot / 2, cy0 + dot, dot, dot);
+            fillRect(renderer, cx0 - spread / 2 - dot / 2, cy0 - dot, dot,
+                     dot);
+            fillRect(renderer, cx0 + spread / 2 - dot / 2, cy0 - dot, dot,
+                     dot);
+        } else {
         constexpr float TwoPi = 6.2831853F;
         for (std::int32_t col = 0; col < plotW; col += 2) {
             const float phase =
@@ -1460,6 +1509,7 @@ void drawSoundVisualizer(SDL_Renderer* renderer,
             const std::int32_t h = std::max<std::int32_t>(2, std::abs(sy - midY));
             setColor(renderer, plaits ? palette.accent : palette.primary);
             fillRect(renderer, plotX + col, top, 2, h);
+        }
         }
     }
 
@@ -2242,11 +2292,8 @@ std::vector<ScreenRow> editRows(const pocket::TrackState& track) {
              BarMode::Unipolar, fillRatio, true},
             {"EOFFS", "+" + std::to_string(track.rhythm.offset) + " ROT",
              BarMode::Unipolar, offsetRatio, true},
-            {"INSTRUMENT",
-             track.instrument == pocket::InstrumentType::Sampler ? "SAMPLER"
-                                                                 : "SYNTH",
-             BarMode::Discrete, 0.0F,
-             track.instrument == pocket::InstrumentType::Synth},
+            {"INSTRUMENT", instrumentName(track.instrument), BarMode::Discrete,
+             0.0F, track.instrument != pocket::InstrumentType::Sampler},
             {"VOLUME", std::to_string(track.volume) + "%", BarMode::Unipolar,
              volumeRatio, true},
             {"MUTE", track.muted ? "ON" : "OFF", BarMode::Discrete, 0.0F,
@@ -2300,20 +2347,22 @@ std::vector<ScreenRow> soundRows(
 
     const bool isSynth = track.instrument == pocket::InstrumentType::Synth;
     const bool isSampler = track.instrument == pocket::InstrumentType::Sampler;
+    const bool isMidi = track.instrument == pocket::InstrumentType::Midi;
+    const bool internal = !isMidi;
     const bool isPlaits =
         isSynth && (track.synth.engineType == pocket::SynthEngineType::Plaits);
 
     return {{"ATTACK",
              formatNumber("%.0f MS", track.envelope.attackSeconds * 1000.0),
-             BarMode::Unipolar, attackRatio, true, true},
+             BarMode::Unipolar, attackRatio, true, internal},
             {"DECAY",
              formatNumber("%.0f MS", track.envelope.decaySeconds * 1000.0),
-             BarMode::Unipolar, decayRatio, true, true},
+             BarMode::Unipolar, decayRatio, true, internal},
             {"FILTER", track.filter.enabled ? "ON" : "OFF", BarMode::Discrete,
-             0.0F, track.filter.enabled, true},
+             0.0F, track.filter.enabled, internal},
             {"CUTOFF", formatNumber("%.0f HZ", track.filter.cutoffHz),
              BarMode::Unipolar, cutoffRatio, track.filter.enabled,
-             track.filter.enabled},
+             internal && track.filter.enabled},
             {"ENGINE",
              track.synth.engineType == pocket::SynthEngineType::Plaits
                  ? "PLAITS"
@@ -2332,7 +2381,7 @@ std::vector<ScreenRow> soundRows(
              track.synth.engineType == pocket::SynthEngineType::Plaits,
              isPlaits},
             {"PITCH", formatNumber("%.0f HZ", track.synth.pitchHz),
-             BarMode::Unipolar, pitchRatio, true, isSynth},
+             BarMode::Unipolar, pitchRatio, true, isSynth || isMidi},
             {"MORPH", formatNumber("%.0f%%", track.synth.morph * 100.0),
              BarMode::Unipolar, track.synth.morph, true, isSynth},
             {"TIMBRE", formatNumber("%.0f%%", track.synth.timbre * 100.0),
@@ -2530,12 +2579,23 @@ float themeRatio(pocket::platform::ThemeId theme) {
 }
 
 std::vector<ScreenRow> systemRows(const pocket::platform::SystemSettings& settings,
-                                  bool midiOnline) {
+                                  bool midiInputOnline,
+                                  bool midiOutputOnline) {
     const auto theme = themeDisplayName(settings.display.theme);
     const float themeFill = themeRatio(settings.display.theme);
     const bool midiEnabled = settings.midi.enabled;
-    const char* midiState =
-        !midiEnabled ? "OFF" : (midiOnline ? "ON" : "NO DEV");
+    const char* midiState = "OFF";
+    if (midiEnabled) {
+        if (midiInputOnline && midiOutputOnline) {
+            midiState = "IN+OUT";
+        } else if (midiInputOnline) {
+            midiState = "IN";
+        } else if (midiOutputOnline) {
+            midiState = "OUT";
+        } else {
+            midiState = "NO DEV";
+        }
+    }
     const float tempoRatio =
         static_cast<float>((settings.clock.initialTempoBpm -
                             pocket::Sequencer::MinTempoBpm) /
@@ -2846,7 +2906,9 @@ int runSdlApp(const AppOptions& options) {
     pocket::MidiClockFollower midiClock;
     bool midiWanted = ui.systemSettings().midi.enabled;
     bool midiOpen = false;
+    bool midiOutputActive = false;
     bool midiFailureLogged = false;
+    bool midiOutputFailureLogged = false;
     bool midiClockAnnounced = false;
     std::uint64_t midiRetryAtMs = 0;
     pocket::ui::InputRepeater repeater;
@@ -2858,6 +2920,8 @@ int runSdlApp(const AppOptions& options) {
     }
 
     pocket::app::DesktopAudioEngine engine(sequencer);
+    engine.setMidiBackend(midiBackend.get());
+    engine.setMidiBaseChannel(ui.systemSettings().midi.outputChannel);
     std::string samplesDir = options.samplesDir;
     if (samplesDir.empty()) {
         std::error_code ec;
@@ -3452,9 +3516,12 @@ int runSdlApp(const AppOptions& options) {
         if (midiEnabledNow != midiWanted) {
             midiWanted = midiEnabledNow;
             midiFailureLogged = false;
+            midiOutputFailureLogged = false;
             midiClockAnnounced = false;
             midiRetryAtMs = 0;
             if (!midiWanted && midiOpen) {
+                engine.setMidiOutputEnabled(false);
+                midiOutputActive = false;
                 midiBackend->close();
                 midiOpen = false;
                 midiClock.reset();
@@ -3465,12 +3532,28 @@ int runSdlApp(const AppOptions& options) {
             if (midiBackend->open()) {
                 midiOpen = true;
                 midiClockAnnounced = false;
-                std::cerr << "MIDI input: " << midiBackend->name() << '\n';
+                std::cerr << "MIDI: " << midiBackend->name() << " (input "
+                          << (midiBackend->hasInput() ? "yes" : "no")
+                          << ", output "
+                          << (midiBackend->hasOutput() ? "yes" : "no")
+                          << ")\n";
             } else if (!midiFailureLogged) {
                 midiFailureLogged = true;
-                std::cerr << "MIDI input unavailable for device "
+                std::cerr << "MIDI unavailable for device "
                           << static_cast<int>(midiDeviceIndex)
                           << "; retrying every 2 s\n";
+            }
+        }
+        const bool midiOutputNow = midiOpen && midiBackend->hasOutput();
+        if (midiOutputNow != midiOutputActive) {
+            midiOutputActive = midiOutputNow;
+            engine.setMidiOutputEnabled(midiOutputNow);
+            if (midiOutputNow) {
+                std::cerr << "MIDI clock and note output enabled\n";
+            } else if (midiWanted && !midiOutputFailureLogged) {
+                midiOutputFailureLogged = true;
+                std::cerr << "MIDI output port unavailable; clock and notes "
+                             "are disabled\n";
             }
         }
         if (midiOpen) {
@@ -3649,7 +3732,9 @@ int runSdlApp(const AppOptions& options) {
             }
             case pocket::ui::Screen::System:
                 renderRows(renderer, *palette, "SYSTEM", "",
-                           systemRows(ui.systemSettings(), midiOpen),
+                           systemRows(ui.systemSettings(),
+                                      midiOpen && midiBackend->hasInput(),
+                                      midiOpen && midiBackend->hasOutput()),
                            static_cast<std::size_t>(ui.state().systemCategory),
                            width, height, 0, std::nullopt, false, 1, 0, {},
                            "UP/DN:CATEGORY  LEFT/RIGHT:CHANGE  TAB:SCREEN  ESC:BACK",
@@ -3700,6 +3785,7 @@ int runSdlApp(const AppOptions& options) {
                   << "% max=" << timing.maxLoadPercent
                   << "% overBudget=" << timing.overBudget << '\n';
     }
+    engine.setMidiOutputEnabled(false);
     engine.stop();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);

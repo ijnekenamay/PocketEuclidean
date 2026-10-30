@@ -2,11 +2,14 @@
 
 #include "audio/AudioParameterQueue.h"
 #include "audio/SequencerCommandQueue.h"
+#include "platform/BackendInterfaces.h"
+#include "sequencer/MidiClock.h"
 #include "sequencer/Sequencer.h"
 #include "ui/ModulationMirror.h"
 #include "ui/StepTriggerEventQueue.h"
 #include "ui/PlayheadMirror.h"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 
@@ -57,6 +60,20 @@ public:
     void setModulationMirror(ui::ModulationMirror* mirror) noexcept {
         modulation_ = mirror;
     }
+    // Setup-only. MIDI output is driven from the audio thread so clock and
+    // note timing do not depend on the UI frame rate.
+    void setMidiBackend(platform::IMidiBackend* backend) noexcept {
+        midiBackend_ = backend;
+    }
+    void setMidiOutputEnabled(bool enabled) noexcept {
+        midiOutputEnabled_.store(enabled, std::memory_order_relaxed);
+    }
+    // 1..16. Track N is sent on the next channel, wrapping at 16.
+    void setMidiBaseChannel(std::uint8_t channel) noexcept {
+        midiBaseChannel_.store(channel >= 1 && channel <= 16 ? channel - 1
+                                                             : 0,
+                               std::memory_order_relaxed);
+    }
     void resetTimeline() noexcept;
     std::uint32_t callbackFailureCount() const noexcept {
         return callbackFailureCount_.load(std::memory_order_relaxed);
@@ -69,6 +86,27 @@ public:
                          std::uint32_t sampleRate) noexcept;
 
 private:
+    void sendMidi(platform::MidiEvent::Type type,
+                  std::uint8_t channel,
+                  std::uint8_t data1 = 0,
+                  std::uint8_t data2 = 0) noexcept;
+    void stopMidiNotes() noexcept;
+    void processMidiOutput(std::uint32_t frameCount,
+                           std::uint32_t sampleRate,
+                           std::uint64_t blockStartFrame) noexcept;
+    void startMidiNote(std::size_t track,
+                       const TickResult& tick,
+                       std::uint32_t sampleOffset,
+                       std::uint64_t blockStartFrame,
+                       std::uint32_t sampleRate) noexcept;
+    static void clockPulse(void* userData,
+                           std::uint32_t sampleOffset) noexcept;
+
+    std::uint8_t midiChannel(std::size_t track) const noexcept {
+        const auto base = midiBaseChannel_.load(std::memory_order_relaxed);
+        return static_cast<std::uint8_t>(((base + track) % 16) + 1);
+    }
+
     Sequencer& sequencer_;
     ui::StepTriggerEventQueue& visualEvents_;
     ScheduledTickCallback tickCallback_;
@@ -78,6 +116,15 @@ private:
     SequencerCommandQueue* sequencerQueue_ = nullptr;
     ui::PlayheadMirror* playhead_ = nullptr;
     ui::ModulationMirror* modulation_ = nullptr;
+    platform::IMidiBackend* midiBackend_ = nullptr;
+    std::atomic<bool> midiOutputEnabled_{false};
+    std::atomic<std::uint8_t> midiBaseChannel_{0};
+    MidiClockGenerator midiClockGenerator_;
+    std::uint32_t lastTransportRevision_ = 0;
+    bool midiWasEnabled_ = false;
+    std::array<bool, TrackCount> midiNoteActive_{};
+    std::array<std::uint8_t, TrackCount> midiNoteNumber_{};
+    std::array<std::uint64_t, TrackCount> midiNoteOffFrame_{};
     std::uint64_t nextBlockStartFrame_ = 0;
     std::atomic<std::uint32_t> callbackFailureCount_{0};
 };

@@ -305,9 +305,10 @@ stay visually separate without boxing every row.
 When a track uses the SAMPLER instrument, synth-only parameters (ENGINE, MODEL,
 PITCH, MORPH, TIMBRE, COLOR) are disabled and rendered in subdued colors without
 active fill, rather than shifting the grid rows. When SYNTH is active, SAMPLE is
-subdued. Disabled fields are read-only: neither Confirm nor A/Ctrl+Left/Right
-changes them, while navigation still reaches the row so its state stays
-explainable.
+subdued. When MIDI is active, only PITCH stays editable (it selects the outgoing
+root note); the internal-audio rows are subdued. Disabled fields are read-only:
+neither Confirm nor A/Ctrl+Left/Right changes them, while navigation still
+reaches the row so its state stays explainable.
 
 ### MIXER
 

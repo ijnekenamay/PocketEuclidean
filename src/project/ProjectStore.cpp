@@ -210,7 +210,7 @@ bool parseTrackLine(const std::string& key, std::istringstream& in,
         int muted = 0;
         if (!(readInt(in, muted, 0, 1) &&
               readInt(in, track.instrument, 0,
-                      static_cast<int>(InstrumentType::Synth)) &&
+                      static_cast<int>(InstrumentType::Midi)) &&
               readInt(in, track.volume, 0, 255) && readFloat(in, track.pan))) {
             return false;
         }

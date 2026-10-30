@@ -17,7 +17,9 @@ constexpr std::size_t TrackCount = 8;
 
 enum class InstrumentType : std::uint8_t {
     Sampler,
-    Synth
+    Synth,
+    // Sends the track's triggers as MIDI notes instead of rendering audio.
+    Midi
 };
 
 struct AdEnvelopeSettings {

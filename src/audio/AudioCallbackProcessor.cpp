@@ -1,6 +1,8 @@
 #include "audio/AudioCallbackProcessor.h"
 #include "audio/SamplerMixerRenderer.h"
+#include "sequencer/MidiNote.h"
 
+#include <algorithm>
 #include <limits>
 
 namespace pocket::audio {
@@ -29,6 +31,8 @@ AudioCallbackProcessor::AudioCallbackProcessor(
 
 bool AudioCallbackProcessor::isRealtimeSafe() const noexcept {
     return visualEvents_.isLockFree() && callbackFailureCount_.is_lock_free() &&
+           midiOutputEnabled_.is_lock_free() &&
+           midiBaseChannel_.is_lock_free() &&
            (sequencerQueue_ == nullptr || sequencerQueue_->isLockFree()) &&
            (renderer_ == nullptr || renderer_->isRealtimeSafe()) &&
            (playhead_ == nullptr || playhead_->isLockFree()) &&
@@ -41,6 +45,134 @@ void AudioCallbackProcessor::resetTimeline() noexcept {
     nextBlockStartFrame_ = 0;
     visualEvents_.reset();
     callbackFailureCount_.store(0, std::memory_order_relaxed);
+    midiClockGenerator_.reset();
+    midiWasEnabled_ = false;
+    lastTransportRevision_ = sequencer_.transportRevision();
+    midiNoteActive_.fill(false);
+    midiNoteNumber_.fill(0);
+    midiNoteOffFrame_.fill(0);
+}
+
+void AudioCallbackProcessor::sendMidi(platform::MidiEvent::Type type,
+                                      std::uint8_t channel,
+                                      std::uint8_t data1,
+                                      std::uint8_t data2) noexcept {
+    if (midiBackend_ == nullptr) {
+        return;
+    }
+    platform::MidiEvent event;
+    event.type = type;
+    event.channel = channel;
+    event.data1 = data1;
+    event.data2 = data2;
+    event.timestampMicros = 0;
+    (void)midiBackend_->send(event);
+}
+
+void AudioCallbackProcessor::stopMidiNotes() noexcept {
+    for (std::size_t track = 0; track < TrackCount; ++track) {
+        if (!midiNoteActive_[track]) {
+            continue;
+        }
+        sendMidi(platform::MidiEvent::Type::NoteOff, midiChannel(track),
+                 midiNoteNumber_[track]);
+        midiNoteActive_[track] = false;
+    }
+}
+
+void AudioCallbackProcessor::clockPulse(void* userData,
+                                        std::uint32_t) noexcept {
+    auto* self = static_cast<AudioCallbackProcessor*>(userData);
+    self->sendMidi(platform::MidiEvent::Type::Clock, 1);
+}
+
+void AudioCallbackProcessor::processMidiOutput(
+    std::uint32_t frameCount,
+    std::uint32_t sampleRate,
+    std::uint64_t blockStartFrame) noexcept {
+    const bool enabled =
+        midiBackend_ != nullptr &&
+        midiOutputEnabled_.load(std::memory_order_relaxed);
+    if (!enabled) {
+        if (midiWasEnabled_) {
+            stopMidiNotes();
+            midiClockGenerator_.reset();
+            midiWasEnabled_ = false;
+        }
+        return;
+    }
+    if (!midiWasEnabled_) {
+        midiWasEnabled_ = true;
+        midiClockGenerator_.reset();
+        lastTransportRevision_ = sequencer_.transportRevision();
+        midiNoteActive_.fill(false);
+    }
+
+    // Transport messages follow the audio-side Sequencer revision so a
+    // Start/Continue/Stop is never lost between UI frames.
+    const auto revision = sequencer_.transportRevision();
+    if (revision != lastTransportRevision_) {
+        lastTransportRevision_ = revision;
+        if (!sequencer_.isPlaying()) {
+            stopMidiNotes();
+            sendMidi(platform::MidiEvent::Type::Stop, 1);
+        } else if (sequencer_.lastStartWasResume()) {
+            sendMidi(platform::MidiEvent::Type::Continue, 1);
+        } else {
+            sendMidi(platform::MidiEvent::Type::Start, 1);
+        }
+    }
+
+    // Clock is deliberately independent of transport: F8 keeps running while
+    // the sequencer is stopped, at the current master tempo.
+    midiClockGenerator_.process(frameCount, sampleRate, sequencer_.tempo(),
+                                &AudioCallbackProcessor::clockPulse, this);
+
+    const bool playing = sequencer_.isPlaying();
+    for (std::size_t track = 0; track < TrackCount; ++track) {
+        if (!midiNoteActive_[track]) {
+            continue;
+        }
+        const auto& state = sequencer_.track(track);
+        if (!playing || state.instrument != InstrumentType::Midi ||
+            state.muted || state.volume == 0 ||
+            blockStartFrame >= midiNoteOffFrame_[track]) {
+            sendMidi(platform::MidiEvent::Type::NoteOff, midiChannel(track),
+                     midiNoteNumber_[track]);
+            midiNoteActive_[track] = false;
+        }
+    }
+}
+
+void AudioCallbackProcessor::startMidiNote(
+    std::size_t track,
+    const TickResult& tick,
+    std::uint32_t sampleOffset,
+    std::uint64_t blockStartFrame,
+    std::uint32_t sampleRate) noexcept {
+    const auto& state = sequencer_.track(track);
+    if (state.muted || state.volume == 0) {
+        return;
+    }
+    if (midiNoteActive_[track]) {
+        sendMidi(platform::MidiEvent::Type::NoteOff, midiChannel(track),
+                 midiNoteNumber_[track]);
+        midiNoteActive_[track] = false;
+    }
+    const auto note =
+        midiNoteFromHz(state.synth.pitchHz, tick.pitchOffsets[track]);
+    const auto velocity = midiVelocityFromVolume(state.volume);
+    sendMidi(platform::MidiEvent::Type::NoteOn, midiChannel(track), note,
+             velocity);
+    midiNoteActive_[track] = true;
+    midiNoteNumber_[track] = note;
+
+    const double samplesPerStep =
+        static_cast<double>(sampleRate) * 60.0 /
+        (std::max(sequencer_.tempo(), 1.0) * 4.0);
+    const auto gate =
+        static_cast<std::uint64_t>(std::max(1.0, samplesPerStep * 0.5));
+    midiNoteOffFrame_[track] = blockStartFrame + sampleOffset + gate;
 }
 
 bool AudioCallbackProcessor::process(float* interleavedStereo,
@@ -83,6 +215,8 @@ bool AudioCallbackProcessor::process(float* interleavedStereo,
         }
     }
 
+    processMidiOutput(frameCount, sampleRate, blockStartFrame);
+
     bool valid = true;
     std::uint32_t renderedFrames = 0;
     const bool scheduled = sequencer_.processFrames(
@@ -116,6 +250,17 @@ bool AudioCallbackProcessor::process(float* interleavedStereo,
                 !renderer_->trigger(tick, sampleRate)) {
                 valid = false;
                 return;
+            }
+            if (midiBackend_ != nullptr &&
+                midiOutputEnabled_.load(std::memory_order_relaxed)) {
+                for (std::size_t t = 0; t < TrackCount; ++t) {
+                    if (tick.triggered[t] &&
+                        sequencer_.track(t).instrument ==
+                            InstrumentType::Midi) {
+                        startMidiNote(t, tick, sampleOffset, blockStartFrame,
+                                      sampleRate);
+                    }
+                }
             }
             visualEvents_.pushTick(blockStartFrame + sampleOffset, tick);
             if (playhead_ != nullptr) {

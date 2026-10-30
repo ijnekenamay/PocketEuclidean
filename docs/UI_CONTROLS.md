@@ -99,7 +99,8 @@ persist raw SDL or joystick button numbers in the shared profile.
 - EDIT: Up/Down moves through length, fill, offset, instrument, volume, and
   mute. Left/Right edits the focused field; length is 2–32, fill is
   1–length, offset is 0–31, and volume is 0–100. Reducing length clamps fill.
-  The large step explorer and the lower polymetric matrix use the same live
+  INSTRUMENT cycles SAMPLER → SYNTH → MIDI → SAMPLER with Left/Right or
+  Confirm. The large step explorer and the lower polymetric matrix use the same live
   post-jitter triggers as MAIN, and the banner carries the `JIT` indicator.
 - SOUND: Up/Down selects per-track Attack, Decay, Filter Enable, Filter
   Cutoff, Synth Engine, Plaits Model, Synth Pitch, Synth Morph, Synth Timbre,
@@ -128,6 +129,12 @@ persist raw SDL or joystick button numbers in the shared profile.
   and Confirm does not open the file browser. When FILTER is disabled, CUTOFF is
   rendered subdued and read-only. MODEL is only editable while the PLAITS engine
   is selected.
+  When the track instrument is MIDI, only PITCH is editable: it sets the root
+  note sent to the MIDI output. ATTACK, DECAY, FILTER, CUTOFF, ENGINE, MODEL,
+  MORPH, TIMBRE, COLOR, and SAMPLE are subdued and read-only, because the track
+  renders no internal audio. The DLY TIME / FDBK / MIX rows stay editable as
+  global effects. The visualizer header reads `MIDI OUT` with a five-pin socket
+  motif.
   The SAMPLE row shows the track's WAV file name or `BUILT-IN`. Long names are
   shortened to eight characters with a trailing `...` so the row keeps the same
   font scale as every other parameter. Confirm opens the SELECT WAV browser;
@@ -215,9 +222,9 @@ persist raw SDL or joystick button numbers in the shared profile.
   persisted in the versioned v4 system file, separately from project data. In
   the Clock/Transport category, Left/Right changes the initial tempo. In the
   MIDI category, Left/Right disables/enables MIDI clock and transport input;
-  the row shows `OFF`, `ON`, or `NO DEV` when no port could be opened. This
-  preference is independent of project dirty state. The controller can skip
-  categories unsupported by its supplied platform capabilities (Linux /
+  the row shows `OFF`, `IN+OUT`, `IN`, `OUT`, or `NO DEV` when no port could be
+  opened. This preference is independent of project dirty state. The controller
+  can skip categories unsupported by its supplied platform capabilities (Linux /
   PortMaster hides MIDI).
 - Display category: Left/Right cycles the global theme (Quiet Dark → Warm
   Paper → High Contrast → Neon RGB → Outrun → Amber CRT → Phosphor → VGA DOS →

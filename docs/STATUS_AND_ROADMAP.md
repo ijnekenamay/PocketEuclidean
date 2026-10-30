@@ -110,7 +110,7 @@
 - **LFO変調エンジン:** トラックあたり最大4スロットを持つデータモデル、初期UIは1基を編集。6波形、FREE/SYNCレート、1基あたり単一出力先、複数寄与の合算、基準値と有効値の分離、整数量子化・範囲制限。長さ変調でトラック位相のみ正規化する。
 - **Jitterイベント処理:** 各トラック独立のInsert/Drop/Shift/Mix、強度・同期間隔・符号付きシフト範囲・任意Seed。固定サイズの非破壊イベントマスクを生成し、Euclideanパターンは保持する。MODULATION画面で主要設定を編集できる。
 - **Turing Machine（S&Hフレーズ生成）:** `src/sequencer/Turing.{h,cpp}`がトラック別32バイトのレジスター、頭位置、CHANCEによる再抽選、スケール／ROOT量子化、±24半音クランプ、ループ境界DRIFT、シード再生成を実装する。クロックはTEMPO（16分tick）、EUCLID（jitter後のトラックトリガー）、FREE（Hz、テンポ非依存）の3モードで、RATEの解釈をモード別に持つ。生成した半音オフセットは`TickResult.pitchOffsets`で音声側へ渡し、サンプラーのplaybackRateとシンセのpitchHzへ反映する。GLIDEは最大0.5秒のブロック平滑化、ライブ表示は`ModulationMirror`経由でhead・32バイト・半音を公開する。TURING画面でENABLE／LOCKを含む13パラメーターを編集できる。LOCKはレジスターを固定したままヘッドだけを進め、CHANCEの再抽選とDRIFTの移調を止める。DICE（Confirmタップ）は0–65535の新シードを書き込み、CST SEEDをONにしてプロジェクトをmodifiedにするため、画面表示・発音・保存が同じフレーズを指す。MIXERのMUTE隣にもLOCK／DICEを配置した。DRIFTはループ末尾で更新し、新しい移調は次のループから適用する。プロジェクト形式v11で保存し、v10はLOCK=false、v6–v9は無効状態で移行する。
-- **MIDI境界とデータモデル:** トランスポートクロック、音声・入力・MIDI・トリガーのインターフェース。SystemSettingsとProjectDataは独立したバージョン番号を持ち、SystemCapabilitiesによる設定カテゴリの機種別可用性判定を備える。Windows向けにWinMM入力バックエンド、24 PPQNクロック追従、Start/Stop/Continue、SYSTEM MIDIトグルを実装済み。
+- **MIDI境界とデータモデル:** トランスポートクロック、音声・入力・MIDI・トリガーのインターフェース。SystemSettingsとProjectDataは独立したバージョン番号を持ち、SystemCapabilitiesによる設定カテゴリの機種別可用性判定を備える。Windows向けにWinMM入出力バックエンド、24 PPQNクロック追従、Start/Stop/Continue、マスターBPMに追従する常時Clock Out、MIDI楽器（Note Out）、SYSTEM MIDIトグルを実装済み。入出力は独立にオープンし、片方のみのポートでも動作する。
 - **プロジェクト操作:** UIからの保存・読み込み・新規・上書き確認要求をSDLアプリが受け取り、`ProjectStore`がv11形式でシリアライズ／復元する。v10はLOCK=falseで、v6–v9はTuring無効で読み込み時に移行する。トラック別サンプルパスは百分率エンコードして保存し、復元時は相対／絶対パスを解決する。
 - **自動テストのソース:** シーケンサーの境界条件、分布、位相、ティックスケジュール、LFO、Jitter、Turingの決定性／動作モード、および入力・UI状態遷移のテストコード。
 - **ビルド設定のひな型:** CMake のコア・ライブラリーとテストターゲット、Linux ARM hard-float と AArch64 用のクロスコンパイル設定例。
@@ -128,13 +128,14 @@
 - **プロジェクト管理:** バージョン付きシリアライズ、`conf/project.pec`への保存・読み込み、v6–v9移行、上書き確認、未保存変更時の Save/Discard/Cancel、サンプルパスの保存・復元は実装済み。残るのは、Save Asの保存先選択UI、OS標準ファイルダイアログ、サンプル欠落時のユーザー向け復旧導線である。
 - **SYSTEM設定永続化:** 設定モデル（テーマID・MIDI設定を含む）、Displayテーマ切り替え、カテゴリ可用性判定、能力に応じたカテゴリ移動、`settings.cfg`への保存・読み込み・v2/v3からの移行は実装済み。SystemSettings形式はv4。残るのは、実機での書き込み先確認とMIDIポートのホットプラグ検出である。
 - **ミキサー実音声統合:** Mixer DSP、atomic meter、sampler rendererのcallback接続は実装済み。実SDLデバイスとUI描画は未実装。
-- **MIDI:** OS/MIDIライブラリー非依存の`IMidiBackend`境界、WinMM入力アダプター、24 PPQNクロック追従（40–240 BPM）、Start/Stop/Continue、SYSTEM MIDIトグル、`--midi-list`／`--midi-device`を実装済み。Linux/PortMasterはnull backendでMIDIカテゴリを隠す。未実装はClock Out、Note Out/In、CC mapping、MIDI Learn、複数ポート同時利用、ホットプラグ、実機でのクロック追従精度確認である。
+- **MIDI:** OS/MIDIライブラリー非依存の`IMidiBackend`境界、WinMM入出力アダプター、24 PPQNクロック追従（40–240 BPM）、Start/Stop/Continue、マスターBPMに追従する常時Clock Out（24 PPQN、オーディオスレッド生成）、MIDI楽器によるNote Out（モノフォニック、トラック別チャンネル、Volume→ベロシティ、Turingオフセット）、SYSTEM MIDIトグル、`--midi-list`／`--midi-device`を実装済み。Linux/PortMasterはnull backendでMIDIカテゴリを隠す。入出力は独立にオープンし、片方のみのポートでも動作する。未実装はCC mapping、MIDI Learn、Note In、複数ポート同時利用、ホットプラグ、実機でのクロック追従精度確認である。
 - **実機固有の入力・保存・配布:** Brick Pro/NextUIを含む各機種のボタンプロファイル、書き込み先、PortMaster起動スクリプト、同梱ランタイム、メタデータ／スクリーンショット／ライセンスを含むパッケージ。
 - **非 Linux 対応:** Windows/macOS ネイティブビルドの実証、および非 Linux ハンドヘルドへの移植。
 
 ### 検証済み／未検証
 
 - Windows x86-64でLLVM-MinGW Clang 23.1.3、CMake 4.3.2、Ninjaを使ったネイティブCMakeビルドを確認済み。
+- **MIDI楽器と常時クロック出力（2026-10-30）。** `InstrumentType`へ`Midi`を追加し、EDITのINSTRUMENT行をSAMPLER→SYNTH→MIDIの3値サイクルにした。MIDIトラックは内部音声をレンダリングせず、トリガーをNote On/Offとして出力する（モノフォニック、`synth.pitchHz`＋Turing半音オフセット、Volume→ベロシティ、出力基準チャンネル＋トラック番号、50%ゲート）。SOUND画面はMIDIトラックでPITCHのみ編集可とし、内部音声系の行をsubdued・読み取り専用にした。マスターBPMに追従する24 PPQNのF8をオーディオスレッドで生成し、トランスポート停止中も常時送出する。Start/Stop/Continueは`transportRevision`に追従する。WinMMバックエンドは入出力を独立にオープンし、片方のみのポートでも動作する。SYSTEMのMIDI表示を`OFF`／`IN+OUT`／`IN`／`OUT`／`NO DEV`へ拡張した。`MidiClockGenerator`・Hz→ノート変換・コールバック統合・UI行状態のテストを追加し、Windowsで全テストが成功。実MIDI機器が無いため、クロック精度と外部機器追従は未検証。
 - **MIXER操作体系のトラッカー方式統一とMaster行分離、SOUND画面の無効項目表示（2026-10-29）。** MIXERを従来のConfirm循環・左右値変更から、SOUND／MODULATION／TURINGと共通のトラッカー方式（←→で列移動、A/Ctrl+←→で値変更、A単押しでMUTE/LOCKトグルおよびDICE実行）へ統一した。Master Volumeは8列目のフィールドから8トラック下の独立行（`mixerMasterRow`）へ再定義し、上下でTRK1…TRK8とMASTERを行移動できるようにした。Master行選択時はヘッダーバッジを`TRKn`から`MST`へ切り替え、Q/E（L1/R1）でトラック復帰するよう調整した。実機コントローラーの`canDeferConfirm()`へ`Screen::Mixer`を追加し、ゲームパッドでのA+左右操作を有効化した。さらに、SOUND画面においてインストゥルメントがSAMPLERのときはシンセ系パラメーター（ENGINE、MODEL、PITCH、MORPH、TIMBRE、COLOR）を無効化（subdued表示・バー消灯・Confirm無効）、SYNTHのときはSAMPLE行を無効化（ファイルセレクタ起動防止）、FILTER OFF時はCUTOFFを無効化する階層表現を導入した。Windowsで全UI・シーケンサ自動テスト（100% pass）を確認済み。無効行はConfirmだけでなくA/Ctrl+←→の値変更も拒否し、MODELはPLAITS選択時のみ編集可とした。MIXERのMASTER行では修飾なしの←→が値を変えないことをテストで確認し、MASTER行選択時はフッターを専用文言（`A/CTRL+LEFT/RIGHT:VOLUME`）へ切り替える。
 - **MAINのフッター削除とトラック表示の明確化（2026-10-28）。** MAIN最下部のキーヒント帯を削除し、8レーンの行高を拡張してリズムを画面いっぱいに表示するようにした。MAINヘッダーには選択トラックを`TRK1`…`TRK8`として明示し、EDIT／SOUND／MIXER／MODULATIONのタイトル横にも同一のアクセント付き`TRKn`バッジを追加した。MIXERヘッダーに重複していた`T1`表記を解消し、画面ごとのフッターを文脈依存の短いヒントへ更新した。SOUND／MODULATIONの2列パラメーターは、通常の←→で同一行の左右列へ移動し、A（ゲームパッド）またはCtrl（キーボード）を押しながら←→で値を変更するトラッカー方式に変更した（M8系の操作体系）。Shift併用で微調整。`--inject-keys`へ`ctrl`を追加し、列移動と値変更をGUIキャプチャで確認した。1024×768と640×480のMAIN／SOUND／MODULATIONを確認済み。実機での操作感は未確認。
 - **Turing Machineを追加（2026-10-28）。** トラック別のS&Hフレーズ生成を`Screen::Turing`（MAIN→EDIT→SOUND→MIXER→MODULATION→TURING→SYSTEM）として追加した。TEMPO／EUCLID／FREEの3クロック、モード別RATE、LENGTH・CHANCE・RANGE・SCALE・ROOT・GLIDE・DRIFT・SEEDを編集でき、Confirmタップでレジスターを再シードする。音声側は`TickResult.pitchOffsets`をサンプラーのplaybackRateとシンセのpitchHzへ反映し、GLIDEをブロック単位で平滑化する。`ModulationMirror`がライブのhead・32バイト・半音を公開し、TURING画面のレジスター表示とピッチ表示を更新する。プロジェクト形式をv10へ上げ、v6–v9はTuring無効・LENGTH 8で移行する。Windowsでビルドと全テスト（sequencer／UI）が成功し、1024×768と640×480のTURING画面をキャプチャ確認した。実機での音声・操作性は未確認。
@@ -239,21 +240,28 @@
 ### Phase 8 — MIDI クロックとトランスポート同期
 
 - [x] MIDI backend adapterを追加し、Clock InとStart/Stop/Continueを実装。
-  WindowsはWinMM、Linux/PortMasterはnull backend。Clock Outは未実装。
+  WindowsはWinMM、Linux/PortMasterはnull backend。
+- [x] マスターBPMに追従する24 PPQN Clock Out（F8）を実装。トランスポート
+  停止中も常時送出し、オーディオスレッドでブロック単位に生成する。
+  Start/Stop/ContinueもtransportRevisionに追従して送出する。
 - [ ] 外部クロック接続／切断、マスター優先順位、位相の扱いを定義する。
   現状はMIDI入力ONで外部クロックを優先し、OFFで内部クロックへ戻る。
 - [x] MIDI未接続時にもstandalone grooveboxとしての動作を維持する。
 
 **完了条件:** MIDI clock / transportを差し替え可能なbackend経由で利用できる。
-Clock In／transportは満たす。Clock Outと複数ポート運用は未完了。
+Clock In／transport／Clock Outは満たす。複数ポート運用と実機での精度検証は未完了。
 
 ### Phase 9 — MIDI ノート、CC、Learn
 
-- Note Out、CC入力とパラメーター割り当て、MIDI Learn、チャンネルと
-  ポート設定を段階的に追加する。
+- [x] サウンドエンジンの一つとしてMIDIを追加。MIDIトラックのトリガーを
+  Note On/Offとして出力する（モノフォニック、PITCH＋Turingオフセット、
+  Volume→ベロシティ、トラック別チャンネル、50%ゲート）。
+- [ ] CC入力とパラメーター割り当て、MIDI Learn、複数ポート設定を段階的に追加する。
+- [ ] 入力ノートによる発音（Note In）を追加する。
 - 共通設定モデルとプラットフォーム機能検査を使用する。
 
 **完了条件:** MIDI機能がシーケンサー／UIのOS固有実装に侵入しない。
+Note Outは満たす。CC／Learn／Note Inは未完了。
 
 ### Phase 10 — デバイス別クロスビルドと配布
 

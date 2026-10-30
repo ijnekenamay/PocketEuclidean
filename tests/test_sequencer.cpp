@@ -12,6 +12,7 @@
 #include "audio/WavDecoder.h"
 #include "sequencer/Modulation.h"
 #include "sequencer/MidiClock.h"
+#include "sequencer/MidiNote.h"
 #include "sequencer/Sequencer.h"
 #include "platform/SystemSettings.h"
 #include "platform/BackendInterfaces.h"
@@ -2263,6 +2264,143 @@ void testMidiClockAndTransport() {
            "audio-side Continue preserves the transport position");
 }
 
+void testMidiClockGenerator() {
+    using namespace pocket;
+    MidiClockGenerator generator;
+    std::uint64_t pulses = 0;
+    const auto countPulse = [](void* data, std::uint32_t) noexcept {
+        ++*static_cast<std::uint64_t*>(data);
+    };
+
+    generator.process(48000, 48000, 120.0, countPulse, &pulses);
+    expect(pulses == 48,
+           "120 BPM emits 48 clock pulses per second (24 PPQN)");
+
+    pulses = 0;
+    generator.reset();
+    generator.process(24000, 48000, 60.0, countPulse, &pulses);
+    generator.process(24000, 48000, 60.0, countPulse, &pulses);
+    expect(pulses == 24,
+           "60 BPM emits 24 clock pulses per second across block boundaries");
+
+    pulses = 0;
+    generator.reset();
+    generator.process(48000, 48000, 240.0, countPulse, &pulses);
+    expect(pulses == 96, "240 BPM emits 96 clock pulses per second");
+}
+
+void testMidiNoteMapping() {
+    using namespace pocket;
+    expect(midiNoteFromHz(440.0F) == 69,
+           "440 Hz maps to MIDI note 69 (A4)");
+    expect(midiNoteFromHz(110.0F) == 45,
+           "110 Hz maps to MIDI note 45 (A2)");
+    expect(midiNoteFromHz(110.0F, 12) == 57,
+           "a +12 semitone Turing offset transposes the MIDI note");
+    expect(midiNoteFromHz(20.0F, -100) == 0 &&
+               midiNoteFromHz(20000.0F, 100) == 127,
+           "MIDI note numbers clamp to 0..127");
+    expect(midiVelocityFromVolume(100) == 127 &&
+               midiVelocityFromVolume(50) == 64 &&
+               midiVelocityFromVolume(0) == 1,
+           "track volume maps to a usable MIDI velocity");
+}
+
+class RecordingMidiBackend final : public pocket::platform::IMidiBackend {
+public:
+    bool open() noexcept override { return true; }
+    void close() noexcept override {}
+    bool poll(pocket::platform::MidiEvent&) noexcept override { return false; }
+    bool send(const pocket::platform::MidiEvent& event) noexcept override {
+        events.push_back(event);
+        return true;
+    }
+    bool hasOutput() const noexcept override { return true; }
+
+    std::vector<pocket::platform::MidiEvent> events;
+};
+
+void testMidiOutputFromCallbackProcessor() {
+    using namespace pocket;
+    using MidiType = platform::MidiEvent::Type;
+
+    {
+        Sequencer sequencer;
+        ui::StepTriggerEventQueue visualEvents;
+        audio::AudioCallbackProcessor processor(sequencer, visualEvents);
+        RecordingMidiBackend midi;
+        processor.setMidiBackend(&midi);
+        processor.setMidiBaseChannel(1);
+        processor.setMidiOutputEnabled(true);
+        std::array<float, 512> buffer{};
+        // First block enables the output and establishes the transport
+        // baseline without emitting a spurious Start.
+        expect(processor.process(buffer.data(), 256, 0, 48000),
+               "MIDI processor renders an idle block");
+        sequencer.start();
+        expect(processor.process(buffer.data(), 256, 256, 48000),
+               "MIDI processor renders a started block");
+        bool sawStart = false;
+        for (const auto& event : midi.events) {
+            sawStart = sawStart || event.type == MidiType::Start;
+        }
+        expect(sawStart, "transport start is sent as MIDI Start");
+        sequencer.stop();
+        expect(processor.process(buffer.data(), 256, 512, 48000),
+               "MIDI processor renders a stopped block");
+        bool sawStop = false;
+        for (const auto& event : midi.events) {
+            sawStop = sawStop || event.type == MidiType::Stop;
+        }
+        expect(sawStop, "transport stop is sent as MIDI Stop");
+    }
+
+    Sequencer sequencer;
+    sequencer.setInstrument(0, InstrumentType::Midi);
+    sequencer.setRhythm(0, {16, 16, 0});
+    sequencer.setTempo(120.0);
+    sequencer.start();
+    ui::StepTriggerEventQueue visualEvents;
+    audio::AudioCallbackProcessor processor(sequencer, visualEvents);
+    RecordingMidiBackend midi;
+    processor.setMidiBackend(&midi);
+    processor.setMidiBaseChannel(1);
+    processor.setMidiOutputEnabled(true);
+
+    std::array<float, 512> buffer{};
+    std::uint64_t blockStart = 0;
+    for (int block = 0; block < 187; ++block) {
+        expect(processor.process(buffer.data(), 256, blockStart, 48000),
+               "MIDI note block renders");
+        blockStart += 256;
+    }
+    expect(processor.process(buffer.data(), 128, blockStart, 48000),
+           "MIDI note tail block renders");
+
+    std::size_t clocks = 0;
+    std::size_t noteOns = 0;
+    std::size_t noteOffs = 0;
+    std::uint8_t firstNote = 0;
+    for (const auto& event : midi.events) {
+        if (event.type == MidiType::Clock) {
+            ++clocks;
+        } else if (event.type == MidiType::NoteOn) {
+            if (noteOns == 0) {
+                firstNote = event.data1;
+            }
+            ++noteOns;
+        } else if (event.type == MidiType::NoteOff) {
+            ++noteOffs;
+        }
+    }
+    expect(clocks == 48,
+           "MIDI clock output is continuous for one second at 120 BPM");
+    expect(noteOns == 8 && noteOffs == 8,
+           "a 16/16 MIDI track sends one note per 16th step");
+    expect(firstNote == 45,
+           "MIDI note uses the track pitch and Turing offset");
+}
+
 void testSettingsStore() {
     using namespace pocket;
     platform::SystemSettings settings;
@@ -2713,6 +2851,9 @@ int main() {
     testSampleCache();
     testVersionedSettingsAndProjectSeparation();
     testMidiClockAndTransport();
+    testMidiClockGenerator();
+    testMidiNoteMapping();
+    testMidiOutputFromCallbackProcessor();
     testLiveChangesMuteAndTempo();
     testSampleTimeScheduling();
     testAudioCallbackProcessor();

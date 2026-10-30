@@ -40,6 +40,23 @@ std::size_t wrapIndex(int value, std::size_t count) noexcept {
     return static_cast<std::size_t>((value % signedCount + signedCount) % signedCount);
 }
 
+InstrumentType adjacentInstrument(InstrumentType current,
+                                  int direction) noexcept {
+    constexpr InstrumentType Order[] = {InstrumentType::Sampler,
+                                        InstrumentType::Synth,
+                                        InstrumentType::Midi};
+    constexpr int Count = static_cast<int>(sizeof(Order) / sizeof(Order[0]));
+    int index = 0;
+    for (int i = 0; i < Count; ++i) {
+        if (Order[i] == current) {
+            index = i;
+            break;
+        }
+    }
+    const int step = direction < 0 ? -1 : 1;
+    return Order[(index + step + Count) % Count];
+}
+
 } // namespace
 
 void UiController::dispatch(ActionEvent event) {
@@ -276,10 +293,9 @@ void UiController::dispatchEdit(ActionEvent event) {
             state_.modified = true;
         } else if (state_.editField == EditField::Instrument) {
             const auto& track = sequencer_.track(state_.selectedTrack);
-            const auto next = track.instrument == InstrumentType::Sampler
-                                  ? InstrumentType::Synth
-                                  : InstrumentType::Sampler;
-            sequencer_.setInstrument(state_.selectedTrack, next);
+            sequencer_.setInstrument(
+                state_.selectedTrack,
+                adjacentInstrument(track.instrument, 1));
             state_.modified = true;
         }
         break;
@@ -538,15 +554,24 @@ bool UiController::rollTuringSeed() noexcept {
 bool UiController::soundFieldEnabled(SoundField field) const noexcept {
     const auto& source = sequencer_.track(state_.selectedTrack);
     const bool synth = source.instrument == InstrumentType::Synth;
+    const bool midi = source.instrument == InstrumentType::Midi;
+    const bool internal = !midi;
     const auto track = audioSettings(state_.selectedTrack);
     switch (field) {
+    case SoundField::Attack:
+    case SoundField::Decay:
+        return internal;
+    case SoundField::FilterEnabled:
+        return internal;
     case SoundField::FilterCutoff:
-        return track.filter.enabled;
+        return internal && track.filter.enabled;
     case SoundField::EngineType:
         return synth;
     case SoundField::Model:
         return synth && track.synth.engineType == SynthEngineType::Plaits;
     case SoundField::Pitch:
+        // MIDI tracks use PITCH as the outgoing note root.
+        return synth || midi;
     case SoundField::Morph:
     case SoundField::Timbre:
     case SoundField::Color:
@@ -1221,8 +1246,8 @@ void UiController::changeEditValue(int direction, bool fine) {
         break;
     }
     case EditField::Instrument: {
-        const auto instrument = direction < 0 ? InstrumentType::Sampler
-                                              : InstrumentType::Synth;
+        const auto& track = sequencer_.track(state_.selectedTrack);
+        const auto instrument = adjacentInstrument(track.instrument, direction);
         changed = sequencer_.setInstrument(state_.selectedTrack, instrument);
         break;
     }

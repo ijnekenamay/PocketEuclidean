@@ -233,6 +233,17 @@ public:
     void setEffectState(const project::ProjectEffectState& state) noexcept {
         renderer_.setEffectState(state);
     }
+    // Setup-only. The processor owns no MIDI object; the app keeps the backend
+    // alive and gates sends with an atomic flag.
+    void setMidiBackend(platform::IMidiBackend* backend) noexcept {
+        processor_.setMidiBackend(backend);
+    }
+    void setMidiOutputEnabled(bool enabled) noexcept {
+        processor_.setMidiOutputEnabled(enabled);
+    }
+    void setMidiBaseChannel(std::uint8_t channel) noexcept {
+        processor_.setMidiBaseChannel(channel);
+    }
     audio::AudioParameterQueue& parameterQueue() noexcept { return queue_; }
     const platform::AudioDeviceSpec& obtainedSpec() const noexcept {
         return obtained_;

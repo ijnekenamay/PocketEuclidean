@@ -822,6 +822,65 @@ void testSynthEngineSelection() {
            "cutoff becomes editable once the filter is on");
 }
 
+void testMidiInstrumentAndSoundRows() {
+    using namespace pocket;
+    using namespace pocket::ui;
+
+    Sequencer sequencer;
+    UiController ui(sequencer);
+    ui.dispatch({Action::ScreenNext}); // Edit
+    for (int i = 0; i < 3; ++i) {
+        ui.dispatch({Action::NavDown});
+    }
+    expect(ui.state().editField == EditField::Instrument,
+           "EDIT navigation reaches the instrument field");
+
+    ui.dispatch({Action::NavRight});
+    expect(sequencer.track(0).instrument == InstrumentType::Synth,
+           "instrument cycles from Sampler to Synth");
+    ui.dispatch({Action::NavRight});
+    expect(sequencer.track(0).instrument == InstrumentType::Midi,
+           "instrument cycles from Synth to MIDI");
+    ui.dispatch({Action::Confirm});
+    expect(sequencer.track(0).instrument == InstrumentType::Sampler,
+           "confirm wraps the instrument cycle back to Sampler");
+    ui.dispatch({Action::NavLeft});
+    expect(sequencer.track(0).instrument == InstrumentType::Midi,
+           "left wraps the instrument cycle to MIDI");
+
+    ui.dispatch({Action::ScreenNext}); // Sound
+    for (int i = 0; i < 6; ++i) {
+        ui.dispatch({Action::NavDown});
+    }
+    expect(ui.state().soundField == SoundField::Pitch,
+           "SOUND navigation reaches PITCH on a MIDI track");
+    const auto midiPitchBefore = sequencer.track(0).synth.pitchHz;
+    ui.dispatch({Action::NavRight, false, true});
+    expect(sequencer.track(0).synth.pitchHz > midiPitchBefore,
+           "PITCH remains editable for a MIDI track");
+
+    for (int i = 0; i < 6; ++i) {
+        ui.dispatch({Action::NavUp});
+    }
+    expect(ui.state().soundField == SoundField::Attack,
+           "SOUND navigation returns to ATTACK");
+    const auto midiAttackBefore = sequencer.track(0).envelope.attackSeconds;
+    ui.dispatch({Action::NavRight, false, true});
+    expect(sequencer.track(0).envelope.attackSeconds == midiAttackBefore,
+           "ATTACK is read-only on a MIDI track");
+
+    for (int i = 0; i < 4; ++i) {
+        ui.dispatch({Action::NavDown});
+    }
+    expect(ui.state().soundField == SoundField::EngineType,
+           "SOUND navigation reaches ENGINE on a MIDI track");
+    const auto midiEngineBefore = sequencer.track(0).synth.engineType;
+    ui.dispatch({Action::NavRight, false, true});
+    ui.dispatch({Action::Confirm});
+    expect(sequencer.track(0).synth.engineType == midiEngineBefore,
+           "ENGINE is read-only on a MIDI track");
+}
+
 void testSampleBrowser() {
     using namespace pocket;
     using namespace pocket::ui;
@@ -1543,6 +1602,7 @@ int main() {
     testMainScreenDrawList();
     testTrackNavigationAndTransport();
     testSynthEngineSelection();
+    testMidiInstrumentAndSoundRows();
     testSampleBrowser();
     testUiAudioParameterQueue();
     testScreensAndEditRanges();

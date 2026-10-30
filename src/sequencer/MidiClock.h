@@ -64,4 +64,29 @@ private:
     bool tempoChangedPending_ = false;
 };
 
+// Generates 24 PPQN clock pulses from the master tempo. It runs independently
+// of transport state, so F8 keeps flowing while the sequencer is stopped. The
+// callback is invoked from the audio thread; sampleOffset is relative to the
+// current block.
+class MidiClockGenerator {
+public:
+    using PulseCallback = void (*)(void* userData,
+                                   std::uint32_t sampleOffset) noexcept;
+
+    void reset() noexcept;
+
+    void process(std::uint32_t frameCount,
+                 std::uint32_t sampleRate,
+                 double bpm,
+                 PulseCallback callback,
+                 void* userData) noexcept;
+
+    std::uint64_t pulseCount() const noexcept { return pulseCount_; }
+
+private:
+    double framesUntilNextPulse_ = 0.0;
+    std::uint32_t sampleRate_ = 0;
+    std::uint64_t pulseCount_ = 0;
+};
+
 } // namespace pocket
