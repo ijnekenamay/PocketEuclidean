@@ -123,10 +123,11 @@ persist raw SDL or joystick button numbers in the shared profile.
   filter.
   When the track instrument is SAMPLER, synthesis parameters (ENGINE, MODEL,
   PITCH, MORPH, TIMBRE, COLOR) are disabled and rendered in subdued colors
-  without active bar fill; Confirm does not toggle engine type or model.
+  without active bar fill; neither Confirm nor A/Ctrl+Left/Right changes them.
   Conversely, when the track instrument is SYNTH, the SAMPLE row is disabled
   and Confirm does not open the file browser. When FILTER is disabled, CUTOFF is
-  rendered subdued.
+  rendered subdued and read-only. MODEL is only editable while the PLAITS engine
+  is selected.
   The SAMPLE row shows the track's WAV file name or `BUILT-IN`. Long names are
   shortened to eight characters with a trailing `...` so the row keeps the same
   font scale as every other parameter. Confirm opens the SELECT WAV browser;
@@ -144,8 +145,9 @@ persist raw SDL or joystick button numbers in the shared profile.
   code must include it. Back returns to EDIT.
 - MIXER: Up/Down navigates between the eight track strips and the dedicated
   master volume strip below (`TRK1` … `TRK8` and `MASTER`). Left/Right moves
-  between columns (Volume, Pan, Mute, Lock, Dice, Reverb Send, Delay Send); on
-  the master row, Left/Right focuses the master volume strip. Hold Ctrl
+  between columns (Volume, Pan, Mute, Lock, Dice, Reverb Send, Delay Send); the
+  master strip has a single column, so Left/Right does nothing there unless the
+  value modifier is held. Hold Ctrl
   (keyboard) or A (gamepad) while pressing Left/Right to adjust the focused
   value; Shift makes that change fine. A quick Confirm/A tap toggles MUTE or
   LOCK, or rolls DICE on the selected track. The header displays the focused

@@ -297,6 +297,7 @@ private:
     void dispatchSound(ActionEvent event);
     void dispatchMixer(ActionEvent event);
     void changeMixerValue(int direction, bool fine);
+    bool soundFieldEnabled(SoundField field) const noexcept;
     void dispatchModulation(ActionEvent event);
     void dispatchTuring(ActionEvent event);
     void dispatchSystem(ActionEvent event);

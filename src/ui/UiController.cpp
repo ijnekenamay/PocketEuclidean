@@ -332,23 +332,19 @@ void UiController::dispatchSound(ActionEvent event) {
         }
         break;
     }
-    case Action::Confirm: {
-        const auto instrument =
-            sequencer_.track(state_.selectedTrack).instrument;
-        if (state_.soundField == SoundField::FilterEnabled) {
+    case Action::Confirm:
+        // Disabled rows never act, matching their subdued rendering.
+        if (!soundFieldEnabled(state_.soundField)) {
+            break;
+        }
+        if (state_.soundField == SoundField::FilterEnabled ||
+            state_.soundField == SoundField::EngineType ||
+            state_.soundField == SoundField::Model) {
             changeSoundValue(1, false);
-        } else if (state_.soundField == SoundField::EngineType ||
-                   state_.soundField == SoundField::Model) {
-            if (instrument == InstrumentType::Synth) {
-                changeSoundValue(1, false);
-            }
         } else if (state_.soundField == SoundField::Sample) {
-            if (instrument == InstrumentType::Sampler) {
-                openSampleBrowser();
-            }
+            openSampleBrowser();
         }
         break;
-    }
     case Action::Back:
         state_.screen = Screen::Edit;
         break;
@@ -539,7 +535,35 @@ bool UiController::rollTuringSeed() noexcept {
     return true;
 }
 
+bool UiController::soundFieldEnabled(SoundField field) const noexcept {
+    const auto& source = sequencer_.track(state_.selectedTrack);
+    const bool synth = source.instrument == InstrumentType::Synth;
+    const auto track = audioSettings(state_.selectedTrack);
+    switch (field) {
+    case SoundField::FilterCutoff:
+        return track.filter.enabled;
+    case SoundField::EngineType:
+        return synth;
+    case SoundField::Model:
+        return synth && track.synth.engineType == SynthEngineType::Plaits;
+    case SoundField::Pitch:
+    case SoundField::Morph:
+    case SoundField::Timbre:
+    case SoundField::Color:
+        return synth;
+    case SoundField::Sample:
+        return source.instrument == InstrumentType::Sampler;
+    default:
+        return true;
+    }
+}
+
 void UiController::changeSoundValue(int direction, bool fine) {
+    // Subdued rows stay navigable but read-only, so neither Confirm nor the
+    // A/Ctrl+arrow modifier can change their value.
+    if (!soundFieldEnabled(state_.soundField)) {
+        return;
+    }
     const auto track = audioSettings(state_.selectedTrack);
     switch (state_.soundField) {
     case SoundField::Attack:

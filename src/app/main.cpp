@@ -2216,7 +2216,9 @@ void renderMixerScreen(SDL_Renderer* renderer,
         textX, y, textWidth, pitch, masterColor, rowScale);
 
     drawFooter(renderer, palette, width, height,
-               "UP/DN:TRACK  LEFT/RIGHT:FIELD  A/CTRL+LEFT/RIGHT:VALUE  TAB:SCREEN");
+               masterSelected
+                   ? "UP/DN:TRACK  A/CTRL+LEFT/RIGHT:VOLUME  TAB:SCREEN"
+                   : "UP/DN:TRACK  LEFT/RIGHT:FIELD  A/CTRL+LEFT/RIGHT:VALUE  TAB:SCREEN");
 }
 
 

@@ -762,6 +762,12 @@ void testSynthEngineSelection() {
     expect(ui.state().soundField == SoundField::Model,
            "SOUND navigation reaches the Plaits model field");
     ui.dispatch({Action::NavRight, false, true});
+    expect(ui.effectiveTrackState(0).synth.model == 0,
+           "model stays read-only while BASIC-VA is selected");
+    ui.dispatch({Action::NavUp});
+    ui.dispatch({Action::Confirm});
+    ui.dispatch({Action::NavDown});
+    ui.dispatch({Action::NavRight, false, true});
     expect(ui.effectiveTrackState(0).synth.model == 1,
            "right with the edit modifier selects the next Plaits model");
     audio::AudioParameterCommand modelCommand;
@@ -781,9 +787,13 @@ void testSynthEngineSelection() {
     ui.dispatch({Action::Confirm});
     expect(ui.effectiveTrackState(0).synth.model == 15,
            "confirm on EngineType is ignored while track instrument is Sampler");
+    ui.dispatch({Action::NavDown});
+    ui.dispatch({Action::NavRight, false, true});
+    expect(ui.effectiveTrackState(0).synth.model == 15,
+           "A plus right cannot edit a subdued model row");
 
     sequencer.setInstrument(0, InstrumentType::Synth);
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < 5; ++i) {
         ui.dispatch({Action::NavDown});
     }
     expect(ui.state().soundField == SoundField::Sample,
@@ -791,6 +801,25 @@ void testSynthEngineSelection() {
     ui.dispatch({Action::Confirm});
     expect(ui.state().modal == Modal::None,
            "confirm on Sample does not open file selector while track instrument is Synth");
+
+    // FILTER OFF makes CUTOFF read-only; turning FILTER on restores it.
+    for (int i = 0; i < 7; ++i) {
+        ui.dispatch({Action::NavUp});
+    }
+    expect(ui.state().soundField == SoundField::FilterCutoff,
+           "navigation reaches the cutoff row");
+    const auto mutedCutoff = ui.effectiveTrackState(0).filter.cutoffHz;
+    ui.dispatch({Action::NavRight, false, true});
+    expect(ui.effectiveTrackState(0).filter.cutoffHz == mutedCutoff,
+           "cutoff is read-only while the filter is off");
+    ui.dispatch({Action::NavUp});
+    ui.dispatch({Action::Confirm});
+    expect(ui.effectiveTrackState(0).filter.enabled,
+           "confirm enables the filter");
+    ui.dispatch({Action::NavDown});
+    ui.dispatch({Action::NavRight, false, true});
+    expect(ui.effectiveTrackState(0).filter.cutoffHz > mutedCutoff,
+           "cutoff becomes editable once the filter is on");
 }
 
 void testSampleBrowser() {
@@ -1019,6 +1048,11 @@ void testScreensAndEditRanges() {
     ui.dispatch({Action::NavUp});
     expect(ui.state().mixerMasterRow,
            "mixer up from the first track selects the master strip");
+    const auto masterBefore = ui.systemSettings().audio.masterVolumePercent;
+    ui.dispatch({Action::NavRight});
+    ui.dispatch({Action::NavLeft});
+    expect(ui.systemSettings().audio.masterVolumePercent == masterBefore,
+           "mixer master row ignores left/right without the value modifier");
     ui.dispatch({Action::NavLeft, false, true});
     expect(ui.systemSettings().audio.masterVolumePercent < mixerSettings,
            "mixer master volume updates the global audio preference");
@@ -1448,6 +1482,7 @@ void testEffectiveTrackStateAndTempoControls() {
            "SYSTEM > ClockAndTransport Left/Right adjusts tempo");
     // Synth and Delay parameters on SOUND screen
     Sequencer synthDelaySeq;
+    synthDelaySeq.setInstrument(0, InstrumentType::Synth);
     audio::AudioParameterQueue synthDelayQueue;
     UiController synthDelayUi(synthDelaySeq);
     synthDelayUi.setAudioParameterQueue(&synthDelayQueue);
