@@ -1904,7 +1904,9 @@ void renderRows(SDL_Renderer* renderer,
     const std::size_t maxRows =
         std::max<std::size_t>(1, std::max(columnRows[0], columnRows[1]));
 
-    const std::int32_t maxPitch = std::max<std::int32_t>(40, height / 12);
+    // Slightly tighter than the row's natural cap so the visualiser above can
+    // take the freed height without the type scale stepping down.
+    const std::int32_t maxPitch = std::max<std::int32_t>(36, height / 13);
     const std::int32_t pitch = std::clamp<std::int32_t>(
         availableHeight / static_cast<std::int32_t>(maxRows), 18, maxPitch);
     const std::int32_t blockHeight =
@@ -3640,7 +3642,7 @@ int runSdlApp(const AppOptions& options) {
                                  height);
                 break;
             case pocket::ui::Screen::Edit: {
-                const std::int32_t explorerH = std::max<std::int32_t>(140, height * 28 / 100);
+                const std::int32_t explorerH = std::max<std::int32_t>(150, height * 32 / 100);
                 renderRows(renderer, *palette, "EDIT",
                            "", editRows(selectedTrack),
                            static_cast<std::size_t>(ui.state().editField),
@@ -3656,7 +3658,7 @@ int runSdlApp(const AppOptions& options) {
                 break;
             }
             case pocket::ui::Screen::Sound: {
-                const std::int32_t vizH = std::max<std::int32_t>(88, height * 15 / 100);
+                const std::int32_t vizH = std::max<std::int32_t>(96, height * 23 / 100);
                 renderRows(renderer, *palette, "SOUND",
                            "",
                            soundRows(selectedTrack, ui.effects(),
@@ -3679,7 +3681,7 @@ int runSdlApp(const AppOptions& options) {
                                   height);
                 break;
             case pocket::ui::Screen::Modulation: {
-                const std::int32_t vizH = std::max<std::int32_t>(84, height * 14 / 100);
+                const std::int32_t vizH = std::max<std::int32_t>(96, height * 23 / 100);
                 renderRows(renderer, *palette, "MODULATION",
                            "", modulationRows(selectedTrack),
                            static_cast<std::size_t>(ui.state().modulationField),
@@ -3710,7 +3712,7 @@ int runSdlApp(const AppOptions& options) {
             }
             case pocket::ui::Screen::Turing: {
                 const std::int32_t vizH =
-                    std::max<std::int32_t>(84, height * 14 / 100);
+                    std::max<std::int32_t>(96, height * 23 / 100);
                 renderRows(
                     renderer, *palette, "TURING", "",
                     turingRows(selectedTrack),
