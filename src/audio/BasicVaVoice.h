@@ -20,13 +20,18 @@ public:
     bool isActive() const noexcept { return active_; }
 
 private:
-    float oscillator(float phase, float timbre, float morph) const noexcept;
+    static float oscillator(float phase, float phaseStep, float timbre,
+                            float morph) noexcept;
+    static float polyBlep(float phase, float phaseStep) noexcept;
     static float triangle(float phase) noexcept;
-    static float saw(float phase) noexcept;
-    static float pulse(float phase, float pulseWidth) noexcept;
+    static float saw(float phase, float phaseStep) noexcept;
+    static float pulse(float phase, float pulseWidth,
+                       float phaseStep) noexcept;
 
     SynthParameters parameters_{};
     float phase_ = 0.0F;
+    float detunePhase_ = 0.0F;
+    float subPhase_ = 0.0F;
     float velocity_ = 0.0F;
     bool active_ = false;
 };

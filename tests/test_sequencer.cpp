@@ -1,6 +1,7 @@
 #include "sequencer/EuclideanGenerator.h"
 #include "audio/AudioCallbackProcessor.h"
 #include "audio/BasicVaVoice.h"
+#include "audio/MasterBus.h"
 #include "audio/Mixer.h"
 #include "audio/OnePoleLowPass.h"
 #include "audio/PlaitsModels.h"
@@ -1844,10 +1845,14 @@ void testSamplerMixerAudioPipeline() {
         envelopeSequencer, envelopeEvents, envelopeRenderer);
     envelopeSequencer.start();
     std::array<float, 8192> envelopeBlock{};
+    // The fixed master tone stage is an IIR shelf pair, so its tail decays
+    // exponentially instead of hitting exactly zero. Anything below -100 dBFS
+    // is silent for this check.
+    constexpr float SilenceTolerance = 1.0e-5F;
     expect(envelopeProcessor.process(envelopeBlock.data(), 4096, 0, 48000) &&
                envelopeVoices.activeVoiceCount(0) == 0 &&
-               envelopeBlock[2 * 1500] == 0.0F &&
-               envelopeBlock[2 * 1500 + 1] == 0.0F,
+               std::abs(envelopeBlock[2 * 1500]) < SilenceTolerance &&
+               std::abs(envelopeBlock[2 * 1500 + 1]) < SilenceTolerance,
            "per-track VCA decay stops a long sample and leaves the block silent");
 }
 
@@ -1886,8 +1891,8 @@ void testLiveAudioParameterHandoff() {
            "audio callback applies queued settings before the scheduled trigger");
     bool silentTail = true;
     for (std::size_t frame = 3000; frame < 4096; ++frame) {
-        silentTail = silentTail && firstBlock[frame * 2] == 0.0F &&
-                     firstBlock[frame * 2 + 1] == 0.0F;
+        silentTail = silentTail && std::abs(firstBlock[frame * 2]) < 1.0e-5F &&
+                     std::abs(firstBlock[frame * 2 + 1]) < 1.0e-5F;
     }
     expect(silentTail,
            "queued short decay gates the long sample during the same callback");
@@ -2820,6 +2825,92 @@ void testTuringMachine() {
            "reset preloads the Turing head for the first note");
 }
 
+void testMasterBusToneAndMonoSpread() {
+    using namespace pocket::audio;
+    constexpr float Pi = 3.14159265358979323846F;
+
+    // The fixed master EQ lifts the lows and highs while leaving the mid band
+    // alone. Measure the settled second half of each tone.
+    const auto gainDb = [](float hz) {
+        MasterBus bus;
+        if (!bus.prepare(48000)) {
+            return 0.0F;
+        }
+        constexpr std::size_t Frames = 9600;
+        std::array<float, Frames * 2> buffer{};
+        for (std::size_t frame = 0; frame < Frames; ++frame) {
+            const float sample =
+                0.2F * std::sin(2.0F * Pi * hz *
+                                static_cast<float>(frame) / 48000.0F);
+            buffer[frame * 2] = sample;
+            buffer[frame * 2 + 1] = sample;
+        }
+        bus.process(buffer.data(), Frames);
+        double sum = 0.0;
+        for (std::size_t frame = Frames / 2; frame < Frames; ++frame) {
+            sum += static_cast<double>(buffer[frame * 2]) *
+                   buffer[frame * 2];
+        }
+        const double rms = std::sqrt(sum / (Frames / 2));
+        return static_cast<float>(
+            20.0 * std::log10(rms / (0.2 / std::sqrt(2.0))));
+    };
+    const float lowGain = gainDb(60.0F);
+    const float midGain = gainDb(1000.0F);
+    const float highGain = gainDb(10000.0F);
+    expect(lowGain > 2.0F && lowGain < 2.8F,
+           "master low shelf lifts the bass by about 2.5 dB");
+    expect(std::abs(midGain) < 0.3F,
+           "master tone leaves the mid band nearly flat");
+    expect(highGain > 1.0F && highGain < 2.0F,
+           "master high shelf adds presence without exaggerating it");
+
+    // The mono-to-stereo spread must create side energy while keeping the
+    // mono sum identical, so mono playback is unaffected.
+    std::array<float, 1024> mono{};
+    for (std::size_t frame = 0; frame < mono.size(); ++frame) {
+        mono[frame] = 0.3F * std::sin(2.0F * Pi * 440.0F *
+                                      static_cast<float>(frame) / 48000.0F);
+    }
+    const auto render = [&mono](float spread,
+                                std::array<float, 1024>& left,
+                                std::array<float, 1024>& right) {
+        Mixer mixer;
+        std::array<StereoInputBuffer, pocket::TrackCount> inputs{};
+        std::array<TrackMixerSettings, pocket::TrackCount> settings{};
+        for (auto& setting : settings) {
+            setting.spread = spread;
+        }
+        for (auto& input : inputs) {
+            input = {mono.data(), nullptr};
+        }
+        left.fill(0.0F);
+        right.fill(0.0F);
+        const StereoOutputBuffer output{left.data(), right.data()};
+        mixer.processBlock(inputs, settings, 100, 48000, output,
+                           mono.size(), nullptr);
+    };
+    std::array<float, 1024> dryLeft{};
+    std::array<float, 1024> dryRight{};
+    std::array<float, 1024> wideLeft{};
+    std::array<float, 1024> wideRight{};
+    render(0.0F, dryLeft, dryRight);
+    render(0.3F, wideLeft, wideRight);
+    bool monoCompatible = true;
+    float sideEnergy = 0.0F;
+    for (std::size_t frame = 512; frame < mono.size(); ++frame) {
+        monoCompatible =
+            monoCompatible &&
+            std::abs((dryLeft[frame] + dryRight[frame]) -
+                     (wideLeft[frame] + wideRight[frame])) < 1.0e-5F;
+        sideEnergy += std::abs(wideLeft[frame] - wideRight[frame]);
+    }
+    expect(monoCompatible,
+           "mono spread preserves the summed mono signal");
+    expect(sideEnergy > 0.1F,
+           "mono spread opens a stereo side signal on a centred track");
+}
+
 int main() {
     testSettingsStore();
     testSettingsStoreMigration();
@@ -2842,6 +2933,7 @@ int main() {
     testSamplerVoicePool();
     testSynthVoiceRack();
     testBasicVaVoice();
+    testMasterBusToneAndMonoSpread();
     testSelectableSynthVoice();
     testSynthEngineParameterRouting();
     testOnePoleLowPass();

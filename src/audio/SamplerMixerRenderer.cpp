@@ -4,6 +4,14 @@
 #include <cmath>
 
 namespace pocket::audio {
+namespace {
+
+// Synth tracks are mono, so panning alone leaves them dead centre. This
+// constant amount of allpass-based side signal opens the image without
+// touching sampler tracks, which stay punchy and centred.
+constexpr float SynthStereoSpread = 0.30F;
+
+} // namespace
 
 SamplerMixerRenderer::SamplerMixerRenderer(
     Sequencer& sequencer,
@@ -377,6 +385,12 @@ bool SamplerMixerRenderer::render(float* interleavedStereo,
 
     const StereoOutputBuffer output{outputLeft_.data(), outputRight_.data()};
     const SendBuffers sends{reverbSendBuffer_.data(), delaySendBuffer_.data()};
+    for (std::size_t track = 0; track < TrackCount; ++track) {
+        settings_[track].spread =
+            sequencer_.track(track).instrument == InstrumentType::Synth
+                ? SynthStereoSpread
+                : 0.0F;
+    }
     if (!mixer_.processBlock(inputs_, settings_, masterVolumePercent_,
                              sampleRate, output, frameCount, &sends)) {
         return false;
@@ -399,6 +413,12 @@ bool SamplerMixerRenderer::render(float* interleavedStereo,
     }
     delayEffect_.processStereo(
         interleavedStereo + outputOffset * 2, frameCount, sampleRate);
+    // Fixed master tone and width, then the final safety limiter. This runs
+    // last so the dry mix, reverb, and delay all share one voicing.
+    if (!masterBus_.prepare(sampleRate)) {
+        return false;
+    }
+    masterBus_.process(interleavedStereo + outputOffset * 2, frameCount);
     return true;
 }
 

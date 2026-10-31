@@ -3,6 +3,7 @@
 #include "audio/AdEnvelope.h"
 #include "audio/DelayEffect.h"
 #include "audio/AudioParameterQueue.h"
+#include "audio/MasterBus.h"
 #include "audio/Mixer.h"
 #include "audio/OnePoleLowPass.h"
 #include "audio/ReverbEffect.h"
@@ -79,6 +80,7 @@ private:
     DelayEffect delayEffect_{};
     DelayEffect delaySendEffect_{};
     ReverbEffect reverbEffect_{};
+    MasterBus masterBus_{};
 };
 
 } // namespace pocket::audio

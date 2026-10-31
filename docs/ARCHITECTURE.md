@@ -24,9 +24,9 @@ ITransportClock <── Sequencer ──> TickResult ──> ITriggerSink / audi
                                       JitterEngine
                                             └──> trigger events
 
-Track audio buffers ──> audio::Mixer ──> stereo output
-                              │
-                              └──> atomic PeakMeters ──> UI reads
+Track audio buffers ──> audio::Mixer ──> sends/delay ──> audio::MasterBus
+                              │                              │
+                              └──> atomic PeakMeters ──> UI  └──> stereo output
 
 IAudioBackend / IMidiBackend are replaceable platform ports;
 the sequencer does not call a specific OS or MIDI library.

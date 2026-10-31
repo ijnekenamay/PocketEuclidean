@@ -20,6 +20,9 @@ struct TrackMixerSettings {
     bool muted = false;
     float reverbSend = 0.0F;
     float delaySend = 0.0F;
+    // Mono-source stereo spread, 0 = stay centred, 1 = full allpass side
+    // signal. Only mono inputs use it; stereo inputs are left untouched.
+    float spread = 0.0F;
 };
 
 struct StereoOutputBuffer {
@@ -55,6 +58,10 @@ public:
     static constexpr float TrackHeadroom =
         0.3535533905932738F;
     static constexpr float SoftLimitThreshold = 0.9F;
+    // First-order allpass coefficient for the mono-to-stereo spread. A
+    // first-order allpass leaves lows nearly in phase, so the widening lands
+    // on the mids and highs and the bass stays solid and centred.
+    static constexpr float SpreadAllpassCoefficient = 0.5F;
 
     Mixer() noexcept = default;
 
@@ -83,6 +90,8 @@ private:
     std::array<float, TrackCount> smoothedPan_{};
     std::array<float, TrackCount> smoothedReverbSend_{};
     std::array<float, TrackCount> smoothedDelaySend_{};
+    std::array<float, TrackCount> spreadInput_{};
+    std::array<float, TrackCount> spreadOutput_{};
     float smoothedMasterVolume_ = 0.0F;
     PeakMeters meters_{};
 };

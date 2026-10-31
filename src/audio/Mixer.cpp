@@ -85,7 +85,9 @@ bool Mixer::processBlock(
             !std::isfinite(settings.reverbSend) ||
             settings.reverbSend < 0.0F || settings.reverbSend > 1.0F ||
             !std::isfinite(settings.delaySend) ||
-            settings.delaySend < 0.0F || settings.delaySend > 1.0F) {
+            settings.delaySend < 0.0F || settings.delaySend > 1.0F ||
+            !std::isfinite(settings.spread) ||
+            settings.spread < 0.0F || settings.spread > 1.0F) {
             return false;
         }
         for (std::size_t frame = 0; frame < frameCount; ++frame) {
@@ -144,8 +146,25 @@ bool Mixer::processBlock(
 
             if (mono) {
                 const float gain = smoothedVolume_[trackIndex] * TrackHeadroom;
-                trackLeft = sourceLeft * gain * leftPan;
-                trackRight = sourceRight * gain * rightPan;
+                float monoLeft = sourceLeft;
+                float monoRight = sourceLeft;
+                if (settings.spread > 0.0F) {
+                    // Mono-to-stereo widener: a first-order allpass produces
+                    // a phase-shifted copy, which becomes the side signal.
+                    // The mid signal stays dry, so L + R still equals the
+                    // original mono track.
+                    const float allpass =
+                        SpreadAllpassCoefficient * sourceLeft +
+                        spreadInput_[trackIndex] -
+                        SpreadAllpassCoefficient * spreadOutput_[trackIndex];
+                    spreadInput_[trackIndex] = sourceLeft;
+                    spreadOutput_[trackIndex] = allpass;
+                    const float side = allpass * settings.spread;
+                    monoLeft = sourceLeft + side;
+                    monoRight = sourceLeft - side;
+                }
+                trackLeft = monoLeft * gain * leftPan;
+                trackRight = monoRight * gain * rightPan;
             } else {
                 const float gain = smoothedVolume_[trackIndex] * TrackHeadroom;
                 const float balanceLeft =

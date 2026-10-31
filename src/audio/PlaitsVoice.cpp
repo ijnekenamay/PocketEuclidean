@@ -54,6 +54,23 @@ inline float fastExp(float x) noexcept {
     return result;
 }
 
+// PolyBLEP residual used by the virtual-analog model so its saw/pulse edges
+// stay band-limited instead of aliasing into the audible band.
+inline float polyBlep(float phase, float phaseStep) noexcept {
+    if (phaseStep <= 0.0F) {
+        return 0.0F;
+    }
+    if (phase < phaseStep) {
+        const float t = phase / phaseStep;
+        return t + t - t * t - 1.0F;
+    }
+    if (phase > 1.0F - phaseStep) {
+        const float t = (phase - 1.0F) / phaseStep;
+        return t * t + t + t + 1.0F;
+    }
+    return 0.0F;
+}
+
 inline float noiseFrom(std::uint32_t& state) noexcept {
     state = state * 1664525U + 1013904223U;
     return static_cast<float>(state >> 8) / 8388608.0F - 1.0F;
@@ -148,8 +165,15 @@ bool PlaitsVoice::render(float* monoOutput,
             const float pulseWidth = 0.15F + timbre * 0.7F;
             const float sine = fastSine(enginePhase_);
             const float triangle = 1.0F - 4.0F * std::abs(enginePhase_ - 0.5F);
-            const float saw = enginePhase_ * 2.0F - 1.0F;
-            const float pulse = enginePhase_ < pulseWidth ? 1.0F : -1.0F;
+            const float saw = enginePhase_ * 2.0F - 1.0F -
+                              polyBlep(enginePhase_, phaseStep);
+            float pulse = enginePhase_ < pulseWidth ? 1.0F : -1.0F;
+            pulse += polyBlep(enginePhase_, phaseStep);
+            float fallingPhase = enginePhase_ - pulseWidth;
+            if (fallingPhase < 0.0F) {
+                fallingPhase += 1.0F;
+            }
+            pulse -= polyBlep(fallingPhase, phaseStep);
             const float position = morph * 3.0F;
             if (position < 1.0F) {
                 sample = sine * (1.0F - position) + triangle * position;

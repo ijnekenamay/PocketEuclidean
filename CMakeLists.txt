@@ -21,6 +21,7 @@ add_library(pocket_euclidean
     src/audio/AudioParameterQueue.cpp
     src/audio/BasicVaVoice.cpp
     src/audio/PlaitsVoice.cpp
+    src/audio/MasterBus.cpp
     src/audio/Mixer.cpp
     src/audio/OnePoleLowPass.cpp
     src/audio/ReverbEffect.cpp
