@@ -2020,8 +2020,10 @@ void renderMixerScreen(SDL_Renderer* renderer,
     const std::size_t selected =
         std::min(ui.state().selectedTrack, pocket::TrackCount - 1);
     const auto field = ui.state().mixerField;
-    const char* const fieldNames[] = {"VOLUME", "PAN",   "MUTE", "LOCK",
-                                      "DICE",   "REV",   "DLY"};
+    // Indexed by MixerField, so this must stay in the enum's declaration order
+    // (which is also the on-screen column order).
+    const char* const fieldNames[] = {"MUTE", "LOCK", "DICE", "VOLUME",
+                                      "PAN",  "REV",  "DLY"};
     const std::size_t fieldCount = sizeof(fieldNames) / sizeof(fieldNames[0]);
     const auto fieldIndex = static_cast<std::size_t>(field);
     const bool masterSelected = ui.state().mixerMasterRow;

@@ -1071,9 +1071,23 @@ void testScreensAndEditRanges() {
     expect(sequencer.track(0).muted,
            "mixer mute shortcut suppresses the selected track");
     const auto mixerSettings = ui.systemSettings().audio.masterVolumePercent;
+    // Left/right follows the on-screen strip: PAN -> REV -> DLY -> MUTE ->
+    // LOCK -> DICE -> VOLUME, so the dice wraps straight back to the volume
+    // fader instead of jumping over it to the sends.
+    ui.dispatch({Action::NavRight});
+    expect(ui.state().mixerField == MixerField::ReverbSend,
+           "mixer column order reaches the reverb send after pan");
+    ui.dispatch({Action::NavRight, false, true});
+    expect(sequencer.track(0).reverbSend > 0.0F,
+           "mixer adjusts the selected track reverb send");
+    ui.dispatch({Action::NavRight});
+    ui.dispatch({Action::NavRight, true, true});
+    expect(sequencer.track(0).delaySend > 0.0F &&
+               ui.state().mixerField == MixerField::DelaySend,
+           "mixer adjusts the selected track delay send");
     ui.dispatch({Action::NavRight});
     expect(ui.state().mixerField == MixerField::Mute,
-           "mixer column order reaches mute after pan");
+           "mixer column order reaches mute after the delay send");
     ui.dispatch({Action::Confirm});
     expect(!sequencer.track(0).muted,
            "mixer A tap toggles the mute switch");
@@ -1092,16 +1106,8 @@ void testScreensAndEditRanges() {
                sequencer.track(0).turing.useCustomSeed,
            "mixer dice rolls a new phrase seed");
     ui.dispatch({Action::NavRight});
-    expect(ui.state().mixerField == MixerField::ReverbSend,
-           "mixer column order reaches the reverb send after the dice");
-    ui.dispatch({Action::NavRight, false, true});
-    expect(sequencer.track(0).reverbSend > 0.0F,
-           "mixer adjusts the selected track reverb send");
-    ui.dispatch({Action::NavRight});
-    ui.dispatch({Action::NavRight, true, true});
-    expect(sequencer.track(0).delaySend > 0.0F &&
-               ui.state().mixerField == MixerField::DelaySend,
-           "mixer adjusts the selected track delay send");
+    expect(ui.state().mixerField == MixerField::Volume,
+           "mixer column order wraps from the dice back to volume");
     // Rows walk TRK1..TRK8 and then the master strip, like the parameter
     // screens walk their rows.
     ui.dispatch({Action::NavUp});

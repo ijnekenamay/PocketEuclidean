@@ -152,7 +152,8 @@ persist raw SDL or joystick button numbers in the shared profile.
   code must include it. Back returns to EDIT.
 - MIXER: Up/Down navigates between the eight track strips and the dedicated
   master volume strip below (`TRK1` … `TRK8` and `MASTER`). Left/Right moves
-  between columns (Volume, Pan, Mute, Lock, Dice, Reverb Send, Delay Send); the
+  between columns in on-screen order (Mute, Lock, Dice, Volume, Pan, Reverb
+  Send, Delay Send), so the dice wraps back to the volume fader; the
   master strip has a single column, so Left/Right does nothing there unless the
   value modifier is held. Hold Ctrl
   (keyboard) or A (gamepad) while pressing Left/Right to adjust the focused

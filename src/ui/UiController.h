@@ -58,12 +58,15 @@ enum class TuringField : std::uint8_t {
     Seed
 };
 
+// Declaration order is the on-screen column order, because left/right walks
+// the strip from left to right: the MUTE/LOCK/DICE switches sit before the
+// volume/pan faders, and the two effect sends close the row.
 enum class MixerField : std::uint8_t {
-    Volume,
-    Pan,
     Mute,
     Lock,
     Dice,
+    Volume,
+    Pan,
     ReverbSend,
     DelaySend
 };
