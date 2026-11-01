@@ -4,9 +4,11 @@ But I've run out of credits to use for coding!!!!!
 
 Pocket Euclidean is an original C++17 groovebox project for desktop systems
 and retro handhelds. It targets an eight-track Euclidean sequencer with a WAV
-sampler and replaceable lightweight synthesizer voices. TrimUI Brick Pro /
-NextUI / PortMaster is the first handheld target under consideration; other
-Linux handhelds and desktop systems remain part of the portability design.
+sampler and replaceable synthesizer voices (BASIC-VA plus the vendored
+Mutable Instruments Plaits, Braids, and Rings engines, MIT). PortMaster
+(Linux AArch64) is the handheld target: the package has been run on an R36S by
+the author. TrimUI Brick Pro / NextUI and other Linux handhelds remain
+unverified; desktop systems are part of the portability design.
 
 ## UI Screenshots (Pure Geometric Tile Matrix & Abstract Instrument Icons)
 
@@ -15,7 +17,7 @@ Each track's Euclidean step bar stretches elastically to 100% of the lane width 
 | MAIN (Elastic Polymetric Grid) | EDIT (Step Explorer & 8-Track Phase Matrix) |
 | :---: | :---: |
 | ![MAIN Screen](docs/images/ui_main.png) | ![EDIT Screen](docs/images/ui_edit.png) |
-| **SOUND (AD / LPF / VA Synth / Delay Visualizer)** | **MIXER CONSOLE (8-Ch Level & Pan Field)** |
+| **SOUND (AD / LPF / Plaits-Braids-Rings Synth / Delay Visualizer)** | **MIXER CONSOLE (8-Ch Level & Pan Field)** |
 | ![SOUND Screen](docs/images/ui_sound.png) | ![MIXER Screen](docs/images/ui_mixer.png) |
 | **MODULATION (LFO Cycle & Jitter Scatter)** | **TURING (S&H Phrase Register)** |
 | ![MODULATION Screen](docs/images/ui_modulation.png) | ![TURING Screen](docs/images/ui_turing.png) |
@@ -29,28 +31,40 @@ sampler/synth rendering path, mixer DSP, fixed-size audio/UI event queues,
 logical UI state/input handling, and platform interface contracts. The SDL2
 desktop shell renders all seven screens, runs audio through SDL, saves and loads
 versioned projects and settings, and supports per-track WAV selection.
-Remaining gaps include device packaging, deeper effects routing, Save As /
-missing-sample recovery flows, and measured performance on target hardware.
+Remaining gaps include deeper effects routing, Save As / missing-sample
+recovery flows, and measured eight-track CPU load of the Mutable engines on
+target hardware.
 
 Build and test status is deliberately conservative. The portable core and both
 CTest executables have been built and run on Windows x86-64 with LLVM-MinGW
 Clang 23.1.3 and Ninja; all tests passed. SOUND (MODEL / SAMPLE), the SELECT WAV
-browser, project v11 save/load, and a live sample swap during playback were
-also checked with GUI captures. This still does not verify audible quality,
-long-run stability, or any handheld. No handheld runtime is claimed as verified.
+browser, project v12 save/load, and a live sample swap during playback were
+also checked with GUI captures. The v0.3.0 PortMaster package was started and
+used on an R36S by the author; long-run stability and CPU load were not
+measured, and no other handheld is verified.
 The current Brick Pro ABI, compiler, sysroot, SDL2 runtime, controller mapping,
 audio behavior, storage, and PortMaster/NextUI compatibility all require target
 validation.
 
+## Controls (value editing)
+
+Hold **A** (gamepad) or **Ctrl** (keyboard) on MAIN / EDIT / SOUND / MODULATION /
+TURING / MIXER: **Left/Right changes the focused value by 1 unit, Up/Down by
+10 units** (the row does not move while A is held). Without A, Up/Down move
+rows and Left/Right move columns. Switches and enums step once per press. See
+[docs/UI_CONTROLS.md](docs/UI_CONTROLS.md) for the full mapping.
+
 ## Releases
 
-The current pre-release line is **v0.1.0** (`0.1`). It is the first packaged
-snapshot that includes the Turing LOCK / DICE phrase controls, the padlock and
-die badges in MIXER, and the oversized `▶` / `❚❚` transport mark beside the BPM
-readout. The GitHub release attaches `PocketEuclidean-PortMaster-aarch64.zip`,
-the PortMaster / NextUI AArch64 package; project files are written as v11 and
-v10 files load with `LOCK=false`. Nothing in this line is verified on Brick Pro
-hardware yet — see the status section above before treating it as stable.
+The current release is **v0.3.0**. It adds the real Mutable Instruments
+Plaits, Braids, and Rings engines (selectable per track, 24 / 47 / 6 models),
+the A+arrow value stepping above, and project format v12 (older files are
+migrated). The GitHub release attaches `PocketEuclidean-PortMaster-aarch64.zip`,
+the PortMaster AArch64 package, which includes the Mutable Instruments MIT
+license text under `licenses/`. Earlier releases: v0.2.0, v0.1.0 (first
+packaged snapshot with Turing LOCK / DICE). Only the R36S has been used for
+on-device checks; see the status section above before treating it as stable
+elsewhere.
 
 ## Getting started
 
@@ -110,7 +124,7 @@ Examples:
 .\build\windows\Debug\pocket_euclidean_app.exe --play --samples C:\path\to\wavs
 ```
 
-`--data <dir>`（既定 `./conf`）の `project.pec` に、Project menu（Select）の SAVE／LOAD／NEW で保存・読み込みできます。起動時に存在すれば自動で読み込みます。プロジェクト形式はv11で、トラックごとのPlaitsモデル、サンプルパス、Turing Machine設定（フレーズLOCKを含む）を保存します（v10はLOCK=false、v6–v9はTuring無効で読み込み時に移行）。プロジェクトファイル名のSave Asはまだなく、1スロットのみです。SOUND画面のSAMPLE行でSELECT WAVブラウザを開き、トラック別にWAVを選択できます。同じディレクトリの `settings.cfg` にはテーマとマスター音量などが自動保存されます。
+`--data <dir>`（既定 `./conf`）の `project.pec` に、Project menu（Select）の SAVE／LOAD／NEW で保存・読み込みできます。起動時に存在すれば自動で読み込みます。プロジェクト形式はv12で、トラックごとのシンセエンジン（BASIC-VA／Plaits／Braids／Rings）とモデル、サンプルパス、Turing Machine設定（フレーズLOCKを含む）を保存します（v12未満のPlaitsモデル番号は読み込み時に新しい番号へ変換、v10はLOCK=false、v6–v9はTuring無効で移行）。プロジェクトファイル名のSave Asはまだなく、1スロットのみです。SOUND画面のSAMPLE行でSELECT WAVブラウザを開き、トラック別にWAVを選択できます。同じディレクトリの `settings.cfg` にはテーマとマスター音量などが自動保存されます。
 
 ```powershell
 # ハンドヘルド向けの起動オプション: 全画面、音声レート／バッファー指定。
@@ -126,7 +140,7 @@ WSL／Linux 上で、zig をツールチェーンにしてルート権限なし�
 scripts/build-portmaster-aarch64.sh   # 成果物: ~/pocket-portmaster-build/dist/pocketeuclidean.zip
 ```
 
-対象 glibc は既定 2.28（`GLIBC=` で変更）。SDL2 はリンク用にソースからビルドするだけで、実機では端末側の libSDL2 を使います（リンク用 SDL2 は `SDL_*` のみ公開するよう制限し、zig の compiler-rt をアプリに埋め込ませています）。R36S では初版が `__aarch64_ldadd8_relax` の未解決で起動しなかったため修正済みですが、修正版の実機動作は未確認です。
+対象 glibc は既定 2.28（`GLIBC=` で変更）。SDL2 はリンク用にソースからビルドするだけで、実機では端末側の libSDL2 を使います（リンク用 SDL2 は `SDL_*` のみ公開するよう制限し、zig の compiler-rt をアプリに埋め込ませています）。R36S では初版が `__aarch64_ldadd8_relax` の未解決で起動しなかったため修正済みで、修正版は R36S で動作確認されています（他機種は未確認）。Mutable Instruments の MIT ライセンス文は zip の `licenses/` に同梱しています。
 
 Other desktop platforms can use the same CMake targets with their native
 C++17 compiler:
@@ -172,7 +186,8 @@ Before changing code, check these constraints:
   state concurrently. Check the queue and event-transfer lock-free
   requirements before opening a device.
 - `AudioParameterQueue` currently transfers track volume, pan, mute, Attack,
-  Decay, filter enable/cutoff, and master volume at callback block boundaries.
+  Decay, filter enable/cutoff, synth parameters/engine/model, effect sends and
+  delay settings, and master volume at callback block boundaries.
   Rhythm, tempo, instrument assignment, modulation, and other sequencer
   mutations are not yet safe to make concurrently with playback.
 - Keep buffers, voices, decoded samples, and queues bounded. Use the platform

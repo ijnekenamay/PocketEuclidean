@@ -98,9 +98,11 @@ timeline; call their `reset()` methods while audio production is stopped.
 - Track phase, master tick position, play state, and LFO runtime phase/seed are
   runtime state. They are not part of persistent project configuration.
 - `project::ProjectData` stores musical project state and has its own format
-  version (currently 9). v9 adds an explicit Plaits model per track and a
-  per-track sample path; the reader migrates v6–v8 by deriving the model from
-  morph and treating missing sample data as built-in.
+  version (currently 12). v9 added an explicit model per track and a
+  per-track sample path; v12 widened the model index to cover the Braids and
+  Rings engines. The reader migrates v6–v8 by deriving the model from morph,
+  treats missing sample data as built-in, and remaps pre-v12 Plaits model
+  indices through LegacyPlaitsModelMap.
 - `platform::SystemSettings` stores global defaults and platform preferences
   with a different format version. It must not be embedded in project files.
 - The selected UI theme is a global display preference, not project data.
@@ -221,7 +223,7 @@ sharing those mutable audio settings with the callback. The fixed-capacity
 128-command SPSC queue is produced by the UI thread and drained by the audio
 thread at callback block boundaries. It carries track volume, pan, mute, Attack,
 Decay, filter enable/cutoff, synth pitch/morph/timbre/color, synth engine and
-Plaits model, reverb/delay sends, delay time/feedback/mix, and master volume. If full, `push()`
+synth model, reverb/delay sends, delay time/feedback/mix, and master volume. If full, `push()`
 rejects the newest edit; `UiState::audioParameterRejected` exposes that
 condition and the UI-side value is left unchanged. With the queue attached,
 `UiState::audioTrackSettings` is the UI-owned shadow for these controls; it
@@ -328,32 +330,42 @@ are not band-limited, so this prototype may alias and is not a final
 sound-quality claim, Braids/Plaits emulation, or claim of target-device
 suitability.
 
-`PlaitsVoice` is a MIT-licensed multi-engine implementation inspired by
-Mutable Instruments Plaits. It provides 16 synthesis engines (Virtual Analog,
-Wavetable, FM, Additive, Chord, Speech, Bass Drum, Snare Drum, Hi-Hat, Granular,
-Karplus-Strong String, Modal, Noise, Particle, Phase Distortion, Wave Shaping).
-The engine is selected by `SynthParameters::model` (0–15, short names in
-`audio/PlaitsModels.h`), while `morph` remains a continuous per-model control;
-both were previously folded into morph alone. Each engine maps the common
-synth parameters (pitch, timbre, morph, color, level) to engine-specific
-controls. All oscillator, noise, delay-line, and envelope state is per voice, so
-tracks never share DSP state; envelopes use time since note-on rather than
-oscillator phase.
+The Mutable Instruments engines are vendored under `third_party/mutable`
+(MIT; upstream commit hashes, license notice, and the three local patches are
+recorded in its README) and built as the `mutable_dsp` library. Each wrapper
+is a pimpl class so the upstream headers stay out of the app code, clamps the
+model index, and shares the `LinearStreamResampler` (`MutableResampler.h`)
+to convert the engine rate to the device rate:
+
+- `PlaitsVoice` wraps `plaits::Voice` (48 kHz, 12-sample blocks; 24 models).
+  Note-on retriggers through a gate state machine. Timbre/morph/color map to
+  Plaits HARMONICS/TIMBRE/MORPH; the app AD VCA and filter apply on top of the
+  Plaits LPG. Decay and LPG colour are not exposed in the UI.
+- `BraidsVoice` wraps the Braids macro oscillator (96 kHz internally,
+  decimated to 48 kHz; 47 shapes). Note-on calls `Strike()`.
+- `RingsVoice` wraps the Rings resonator/string part (48 kHz; 6 models) with
+  its internal exciter; note-on strums. Position is fixed.
+
+The model index is `SynthParameters::model` (short names in
+`audio/PlaitsModels.h`); `morph`, `timbre`, and `color` remain continuous
+controls whose meaning depends on the engine. All DSP state is per voice, so
+tracks never share state. Idle voices stop rendering after a timeout.
+Eight-track CPU load on target hardware is not yet measured.
 
 `SelectableSynthVoice` is the per-track backend bound into `SynthVoiceRack`
-once at setup. It owns one `BasicVaVoice` and one `PlaitsVoice` and dispatches
-to the backend named by `SynthParameters::engine`. Engine and model changes
+once at setup. It owns a `BasicVaVoice`, `PlaitsVoice`, `BraidsVoice`, and
+`RingsVoice` and dispatches to the backend named by
+`SynthParameters::engine` (`SynthEngineType`). Engine and model changes
 therefore travel through the existing
 `AudioParameter::TrackSynthEngineType` / `TrackSynthModel` queue entries
-on the audio thread instead of reconfiguring the rack from the UI thread while
-the callback is running. Both backends implement `ISynthVoice` and are
-selectable per-track via `TrackSynthSettings::engineType` and
-`TrackSynthSettings::model` (saved in project format v9; v6–v8 files derive the
-model from morph, v7 files load with the stored engine, and v6 files load with
-`BasicVa` as the default, without effect sends). Adding a third-party
-engine requires per-file license review and cross-platform
-build/resource-generation work, followed by measured eight-track callback
-profiling on target hardware.
+(`ValidateEngine` accepts 0..3) on the audio thread instead of reconfiguring
+the rack from the UI thread while the callback is running. All backends
+implement `ISynthVoice` and are selectable per-track via
+`TrackSynthSettings::engineType` and `TrackSynthSettings::model` (project
+format v12; older files are migrated as described above, and v6 files load
+with `BasicVa` and without effect sends). Adding further third-party engines
+requires per-file license review and measured eight-track callback profiling
+on target hardware.
 
 ## Platform ports and future MIDI
 

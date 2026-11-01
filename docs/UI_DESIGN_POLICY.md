@@ -307,7 +307,7 @@ PITCH, MORPH, TIMBRE, COLOR) are disabled and rendered in subdued colors without
 active fill, rather than shifting the grid rows. When SYNTH is active, SAMPLE is
 subdued. When MIDI is active, only PITCH stays editable (it selects the outgoing
 root note); the internal-audio rows are subdued. Disabled fields are read-only:
-neither Confirm nor A/Ctrl+Left/Right changes them, while navigation still
+neither Confirm nor A/Ctrl+arrows change them, while navigation still
 reaches the row so its state stays explainable.
 
 ### MIXER
@@ -316,7 +316,7 @@ Use horizontal level bars for track volume and a minimal centered pan indicator.
 Up/Down navigates between the eight track strips and the dedicated master volume
 strip below, aligning the vertical spatial order with the parameter screens.
 Left/Right moves between columns (VOL, PAN, MUTE, LOCK, DICE, REV, DLY); value
-changes use the same tracker-style A/Ctrl+Left/Right modifier as SOUND,
+changes use the same tracker-style A/Ctrl modifier as SOUND (Left/Right: 1 unit, Up/Down: 10 units),
 MODULATION, and TURING. A tap on A directly toggles MUTE/LOCK or rolls DICE.
 Communicate mute and solo states, if implemented, with text or restrained
 luminance changes rather than boxed buttons. Peak meters may be flat bars without

@@ -17,8 +17,9 @@ illumination must be driven by the sequencer event timeline, not UI frame count.
 | Keyboard | Logical action |
 | --- | --- |
 | Up / Down | Select a row, track, or category |
-| Left / Right | Move between the two parameter columns on SOUND/MODULATION/TURING; adjust the focused value on EDIT/MIXER/SYSTEM |
-| Ctrl+Left / Right | Adjust the focused SOUND/MODULATION/TURING value (tracker-style edit modifier) |
+| Left / Right | Move between the two parameter columns on SOUND/MODULATION/TURING/MIXER; adjust the focused value on EDIT/SYSTEM |
+| Ctrl+Left / Right | Adjust the focused value by 1 unit (tracker-style edit modifier; MAIN/EDIT/SOUND/MODULATION/TURING/MIXER) |
+| Ctrl+Up / Down | Adjust the focused value by 10 units (does not move the row while Ctrl is held) |
 | Enter | Confirm / open EDIT from MAIN |
 | Escape | Back / close the topmost modal |
 | Space | Start/stop |
@@ -28,7 +29,7 @@ illumination must be driven by the sequencer event timeline, not UI frame count.
 | Tab / Shift+Tab | Next / previous primary screen |
 | P | Open project menu |
 | F1 | Contextual help |
-| Shift+Arrow | Fine value adjustment (combine with Ctrl on SOUND/MODULATION) |
+| Shift+Arrow | Fine value adjustment on screens without the Ctrl/A modifier (SYSTEM); redundant while Ctrl is held |
 
 OS key-repeat events are ignored for non-directional actions, so holding Space
 does not repeatedly toggle transport. Use `InputRepeater` for directional
@@ -108,26 +109,28 @@ persist raw SDL or joystick button numbers in the shared profile.
   Left/Right moves between the left synthesis column and the right
   timbre/effect column at the same row; the header badge (`TRK1` … `TRK8`)
   names the track being edited. Hold Ctrl (keyboard) or A (gamepad) while
-  pressing Left/Right to change the selected value; Shift makes that change
-  fine on the keyboard. A quick Confirm/A tap still opens the browser or
+  pressing Left/Right to change the selected value by 1 unit, or Up/Down to
+  change it by 10 units (the row does not move while the modifier is held). A quick Confirm/A tap still opens the browser or
   toggles a discrete field. Attack spans 1–250 ms and Decay spans
-  20 ms–4 s. Coarse changes are 10 ms for Attack, 100 ms for Decay, 10 Hz for
-  synth pitch, and 1000 Hz for cutoff; fine changes are 1 ms, 10 ms, 1 Hz, and
-  100 Hz. Cutoff spans 100 Hz–20 kHz and is limited below Nyquist during
+  20 ms–4 s. One unit (Left/Right) is 1 ms for Attack, 10 ms for Decay, 1 Hz for
+  synth pitch, and 100 Hz for cutoff; Up/Down applies ten units (10 ms, 100 ms,
+  10 Hz, 1000 Hz). Cutoff spans 100 Hz–20 kHz and is limited below Nyquist during
   rendering.
   Filter Enable and Synth Engine are discrete: Ctrl/A+Left/Right or Confirm
-  toggle them between OFF/ON and BASIC-VA/PLAITS. Plaits Model is an independent
-  index field (1-based number plus a four-letter name, e.g. `1 VA`, `8 HHAT`)
-  that wraps through all sixteen engines; the model applies only while the
-  engine is PLAITS, and Morph remains a continuous parameter *inside* the
-  selected model. Both engines run through the same per-track AD VCA and
+  step through OFF/ON and BASIC-VA/PLAITS/BRAIDS/RINGS (the multiplier is ignored for discrete fields). MODEL is an independent
+  index field (1-based number plus a short name) that wraps through the models
+  of the selected engine (Plaits 24, Braids 47, Rings 6; Up/Down moves it 10 at a time) and
+  is clamped when the engine changes. Engines are the real Mutable Instruments
+  DSP (see `third_party/mutable`). The three timbre rows are relabelled per
+  engine: Plaits HARMONIC/TIMBRE/MORPH, Braids TIMBRE/COLOR (MORPH disabled),
+  Rings STRUCT/BRIGHT/DAMPING. All engines run through the same per-track AD VCA and
   filter.
   When the track instrument is SAMPLER, synthesis parameters (ENGINE, MODEL,
   PITCH, MORPH, TIMBRE, COLOR) are disabled and rendered in subdued colors
   without active bar fill; neither Confirm nor A/Ctrl+Left/Right changes them.
   Conversely, when the track instrument is SYNTH, the SAMPLE row is disabled
   and Confirm does not open the file browser. When FILTER is disabled, CUTOFF is
-  rendered subdued and read-only. MODEL is only editable while the PLAITS engine
+  rendered subdued and read-only. MODEL is only editable while a Mutable engine (PLAITS/BRAIDS/RINGS)
   is selected.
   When the track instrument is MIDI, only PITCH is editable: it sets the root
   note sent to the MIDI output. ATTACK, DECAY, FILTER, CUTOFF, ENGINE, MODEL,
@@ -157,7 +160,7 @@ persist raw SDL or joystick button numbers in the shared profile.
   master strip has a single column, so Left/Right does nothing there unless the
   value modifier is held. Hold Ctrl
   (keyboard) or A (gamepad) while pressing Left/Right to adjust the focused
-  value; Shift makes that change fine. A quick Confirm/A tap toggles MUTE or
+  value by 1 unit, or Up/Down by 10 units. A quick Confirm/A tap toggles MUTE or
   LOCK, or rolls DICE on the selected track. The header displays the focused
   column name and value, carrying a `TRKn` badge for tracks and `MST` for the
   master strip.
@@ -184,7 +187,7 @@ persist raw SDL or joystick button numbers in the shared profile.
 - MODULATION: Up/Down selects the first LFO's fields followed by the selected
   track's jitter fields. Left/Right moves between the LFO column and the
   jitter column; hold Ctrl (keyboard) or A (gamepad) while pressing Left/Right
-  to change a value. The header badge names the track being edited. LFO fields
+  to change a value by 1 unit (Up/Down: 10 units). The header badge names the track being edited. LFO fields
   include enable, waveform, sync (`LFO SYNC`), rate/division, destination, and
   amount. The destination is exactly one of Eleng, Efill, or Eoffs. Jitter
   enable and intensity follow immediately after the LFO fields; mode,
@@ -196,8 +199,8 @@ persist raw SDL or joystick button numbers in the shared profile.
 - TURING: Up/Down selects the selected track's sample-and-hold phrase fields:
   ENABLE, LOCK, CLOCK, RATE, LENGTH, CHANCE, RANGE, SCALE, ROOT, GLIDE, DRIFT,
   CST SEED, and SEED. Left/Right moves between the two columns; hold Ctrl
-  (keyboard) or A (gamepad) while pressing Left/Right to change a value.
-  CLOCK chooses TEMPO (16th-note transport ticks), EUCLID (the track's
+  (keyboard) or A (gamepad) while pressing Left/Right to change a value by 1
+  unit (Up/Down: 10 units). CLOCK chooses TEMPO (16th-note transport ticks), EUCLID (the track's
   post-jitter Euclidean triggers), or FREE (an internal Hz clock that ignores
   tempo). RATE is interpreted per clock mode: musical divisions for TEMPO,
   trigger multiples for EUCLID, and 0.5–8 Hz for FREE. LENGTH is 2–32 steps,
@@ -267,7 +270,7 @@ comma-separated list of `key[:action]`, where key is `up`, `down`, `left`,
   profiles independently.
 - [ ] Navigate all eight tracks using D-pad and keyboard; confirm wraparound.
 - [ ] Edit length, fill, offset, instrument, and volume with keyboard and pad.
-- [ ] Adjust per-track SOUND Attack/Decay values with coarse and fine input;
+- [ ] Adjust per-track SOUND Attack/Decay values with A+Left/Right (1 unit) and A+Up/Down (10 units);
   verify settings persist independently across all eight tracks.
 - [ ] On SOUND, MODULATION, and TURING, move between the two columns with
   Left/Right and verify the value does not change; hold A (pad) or Ctrl
@@ -310,8 +313,8 @@ comma-separated list of `key[:action]`, where key is `up`, `down`, `left`,
   the next press stops, releasing the key does nothing, and repeated key-down
   does not toggle again.
 - [ ] On SOUND, toggle Synth Engine with Ctrl/A+Left/Right and Confirm; verify BASIC-VA
-  and PLAITS both sound and that the MODEL field selects each of the sixteen
-  Plaits engines independently of Morph.
+  and PLAITS/BRAIDS/RINGS all sound and that the MODEL field selects each model
+  of the chosen engine independently of the timbre rows.
 - [ ] On SOUND, open SAMPLE, browse directories, assign a WAV to a track, and
   verify the row shows the shortened file name. Save the project, reload it, and
   confirm the same sample is restored; verify a missing path falls back to

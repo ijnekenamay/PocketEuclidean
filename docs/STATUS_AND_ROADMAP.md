@@ -4,7 +4,7 @@
 
 **この文書の位置づけ:** 共有仕様で明示された要件を「要求」、仕様の未決事項に対して現行コードが選んだ値を「暫定決定」とする。暫定決定は、製品要求として確定したことを意味しない。仕様間で明白な矛盾は見当たらないが、未決事項と未検証事項は残っている。
 
-**引き継ぎ時の読み方:** 実装済みはソース上に存在することを示し、テスト成功や実機動作を自動的に意味しない。検証状態は「検証済み／未検証」を参照する。Windows x86-64でのコアビルド、CTest 2/2、SOUND／ファイルセレクタのGUI確認は済み。次に着手する優先作業は (1) Brick Pro実機での入力・音声・保存・終了確認、(2) Save Asとサンプル欠落時の復旧導線、(3) 実機でのCPU・RSS・callback deadline計測である。スレッド所有権の詳細は [ARCHITECTURE.md](ARCHITECTURE.md)、実機ツールチェーンは [PLATFORMS.md](PLATFORMS.md) を参照する。
+**引き継ぎ時の読み方:** 実装済みはソース上に存在することを示し、テスト成功や実機動作を自動的に意味しない。検証状態は「検証済み／未検証」を参照する。Windows x86-64でのコアビルド、CTest 2/2、SOUND／ファイルセレクタのGUI確認は済み。v0.3.0のPortMaster aarch64パッケージはR36Sで起動・動作確認済み（作者確認）。次に着手する優先作業は (1) 実機でのMutable系エンジンのCPU・RSS・callback deadline計測とBrick Pro等の他機種確認、(2) Save Asとサンプル欠落時の復旧導線、(3) Plaits decay／lpg_colour等の未公開パラメーターの検討である。スレッド所有権の詳細は [ARCHITECTURE.md](ARCHITECTURE.md)、実機ツールチェーンは [PLATFORMS.md](PLATFORMS.md) を参照する。
 
 ## 1. プロジェクト概要
 
@@ -24,7 +24,7 @@
 | トラック | 初期版は8トラック。各トラックに独立したパターン長、フィル、オフセット、再生位置、楽器、音量、ミュートを持つ |
 | ユークリッド・リズム | 長さ `Eleng` は2–32、フィル `Efill` は1–`Eleng`、オフセット `Eoffs` は0–31。フィル数を維持し、できるだけ均等にパルスを配置する |
 | クロック | 全トラックで共有するマスタークロックを使い、16分音符単位でトラック長の違いを独立して進行させる。START は全トラックを先頭に同期リセットし、STOP はクロックを停止する。UI フレームレートに音楽タイミングを依存させない |
-| 楽器 | 初期の楽器種は WAV サンプラーと軽量な VA シンセ。オーディオコールバックでファイル I/O を行わない |
+| 楽器 | 初期の楽器種は WAV サンプラーとシンセ（BASIC-VA、Plaits、Braids、Rings）、および MIDI 出力。オーディオコールバックでファイル I/O を行わない |
 | エフェクト | ディレイと基本フィルター。ルーティングは実装時に定義する |
 | UI | MAIN / EDIT / SOUND / MIXER / MODULATION / TURING / SYSTEM の7画面。Project Menu は global system settings から独立したモーダル。物理コントローラーとデスクトップキーボードから主要機能にアクセスし、マウスは必須にしない |
 | プロジェクト | 8トラック、テンポ、ミュート、楽器・各パラメーター、エフェクト、サンプル参照を保存できるバージョン付き形式 |
@@ -96,9 +96,9 @@
 - **8トラックのシーケンサー状態:** 独立位置、リズム設定、ミュート、楽器種別、0–100 の音量値、テンポ値。
 - **ミキサーDSP:** 0–100%音量カーブ、正規化パン、Monoのequal-power / Stereoのbalance、5msゲインスムージング、トラック別加算ヘッドルーム、マスターsoft limiter、atomic peak meter出力。
 - **サンプルvoiceプールと再生経路:** 固定長32 voice、事前ロード済みmono PCM参照、サンプルレート変換の線形補間、0.25–4倍再生速度、古いvoiceからの決定的stealingを実装。`SamplerMixerRenderer`がティックのsample offsetでcallbackブロックを分割し、sampler voiceをMixer DSP・meter・limiterへ接続する。固定長SPSCキューで音量／Pan／Mute／AD／filter／シンセ各値／センド／ディレイ／master volumeのUI値をcallback block境界で渡す基盤とUIコントローラー接続を追加。**再生中のサンプル差し替えは、容量32のSPSC要求キューと適用IDのACKで行う。旧バッファは音声スレッドの適用確認後までUI側が保持し、再生中でも安全にWAVを交換できる。** SDL音声デバイス接続はWindowsで実装済み。実機期限測定は未検証。
-- **シンセ音源の差し替え境界と軽量VA基準実装:** 固定8スロットの`SynthVoiceRack`と`ISynthVoice`契約に加え、外部依存のないモノフォニック`BasicVaVoice`を実装した。サイン近似／三角／鋸歯／pulse間のmorph、pulse幅timbre、簡易2次倍音colorを提供する。Attack/Decayはサンプラーとシンセ共通のトラック別VCAとして実装し、トラック別ローパスと合わせProjectData v10の設定モデルへ追加した。SOUND状態コントローラーからAttack 1–250 ms、Decay 20 ms–4 s、ローパス有効化と100 Hz–20 kHz cutoffを変更できる。**Plaits風`PlaitsVoice`（16モデル）と、エンジン種別で両者を切り替える`SelectableSynthVoice`を追加した。エンジン切替は`TrackSynthEngineType`、モデル選択は独立した`TrackSynthModel`としてSPSCキュー経由で音声スレッドへ渡し、UIスレッドからラックを再構成しない。SOUND画面には MODEL 行（番号＋短縮名）を追加し、Morphはモデル内の連続パラメーターとして残した。** これはBraids／Plaits互換実装ではなく、音質と実機性能は未測定。CPU予算、Brick Pro deadline、8 voice負荷を実機で検証する。
+- **シンセ音源の差し替え境界と軽量VA基準実装:** 固定8スロットの`SynthVoiceRack`と`ISynthVoice`契約に加え、外部依存のないモノフォニック`BasicVaVoice`を実装した。サイン近似／三角／鋸歯／pulse間のmorph、pulse幅timbre、簡易2次倍音colorを提供する。Attack/Decayはサンプラーとシンセ共通のトラック別VCAとして実装し、トラック別ローパスと合わせProjectDataの設定モデル（現行v12）へ追加した。SOUND状態コントローラーからAttack 1–250 ms、Decay 20 ms–4 s、ローパス有効化と100 Hz–20 kHz cutoffを変更できる。**`PlaitsVoice`（24モデル）・`BraidsVoice`（47シェイプ）・`RingsVoice`（6モデル）は本物のMutable Instruments DSP（`third_party/mutable`、MIT）のラッパーで、エンジン種別でBASIC-VAを含む4種を切り替える`SelectableSynthVoice`を持つ。エンジン切替は`TrackSynthEngineType`、モデル選択は独立した`TrackSynthModel`としてSPSCキュー経由で音声スレッドへ渡し、UIスレッドからラックを再構成しない。SOUND画面には MODEL 行を持ち、エンジンごとにHARMONIC／TIMBRE／MORPH等のラベルを切り替える。** 音質はR36Sで作者が確認済みだが、CPU予算、deadline、8 voice負荷の計測値はない。
 - **WAVデコードとサンプル参照:** 有界RIFF/WAVE parserがPCM 8/16/24/32-bitとIEEE float32のmono/stereoを呼び出し側の固定バッファへmono floatでデコードする。`SampleCache`はcaller-owned arenaと固定8スロットmetadataで、各ファイルと合計のデコードPCMを64 MiB以内に制限する。first-fitで空き連続領域を使い、既存データを移動しない。PCM/float WAVEFORMATEXTENSIBLE、unknown padded chunks、不正／非有限／容量超過データを扱う。**アプリ側はUIスレッドでWAVをデコードしてトラック別に所有し、`SamplerVoicePool`の有界キューで再生中に差し替える。プロジェクトv10はトラック別サンプルパスを保存し、読み込み時に相対／絶対パスを解決して復元する。読み込み失敗時はビルトインへフォールバックする。** `SampleCache`はライブラリとテストには残るが、現行アプリの経路では未使用。
-- **MIXER画面状態:** 8トラック選択、音量／パン／ミュート／フレーズLOCK／フレーズDICE（新シード）／リバーブセンド／ディレイセンド／マスター音量のキーボード・コントローラー操作。描画バックエンドは実装済み。Master VolumeはGlobal SystemSettings、トラック値・センド・LOCKはProjectData v11に保存する方針。
+- **MIXER画面状態:** 8トラック選択、音量／パン／ミュート／フレーズLOCK／フレーズDICE（新シード）／リバーブセンド／ディレイセンド／マスター音量のキーボード・コントローラー操作。描画バックエンドは実装済み。Master VolumeはGlobal SystemSettings、トラック値・センド・LOCKはProjectData（現行v12）に保存する。A+←→で±1、A+↑↓で±10の値編集に対応。
 - **トランスポートとティック:** 初期テンポ120 BPM、開始時の全トラック同期リセット、停止、位置リセット、共有マスター・ティック位置、サンプル数とサンプルレートに基づく16分音符スケジュール計算。START/STOPはトグルで、押下エッジのみ反応し、キーやボタンの離上では再実行しない。コールバックへサンプルオフセットと全トラックのトリガー結果を渡す。120 BPM ではティック間隔125 ms。
 - **プラットフォーム音声契約:** `IAudioBackend`は要求／取得音声仕様を分けたfloat stereo callback契約を持ち、コールバックへ単調な絶対開始フレームを渡す。取得仕様の範囲検証関数と、sample offsetでSequencerを進めて照明SPSCキューへ接続する`AudioCallbackProcessor`を追加。sampler/synth voiceはfixed buffers経由でMixerへ到達し、トラック別AD VCAと任意の一次ローパスを通る。リアルタイム対象パラメーターは固定長SPSCキューでUI側shadowからcallbackへ渡す。SDL2実装、実シンセDSP／delay effects、Sequencer／transportパラメーターの安全なライブ受け渡しは実装済み。
 - **論理入力変換:** キーボードとSDL GameController論理操作を共通アクションへ変換する。固定長のコントローラープロファイルは割当変更とボタン無効化に対応し、未知値を拒否する。機種別プロファイルの選択・永続化とJoystick fallbackは未実装。
@@ -109,24 +109,26 @@
 - **テーマ配色:** `ThemePalette`が背景／主文字／抑制色／アクセントの意味色とQuiet Dark・Warm Paper・High Contrastに加え、Neon RGB・Outrun・Amber CRT・Phosphor・VGA DOSの計8プリセットを提供。レトロコンピュータ系は暗い背景と高彩度のRGB蛍光色（シアン／マゼンタ／アンバー／グリーン／VGAイエロー）で構成し、同じ4ロールのまま全画面を一括で切り替える。SYSTEM > Displayで左右キーからグローバルテーマを変更でき、プロジェクトのdirty stateとは独立する。SystemSettings設定モデル、永続化、SDL描画への適用は実装済み。
 - **LFO変調エンジン:** トラックあたり最大4スロットを持つデータモデル、初期UIは1基を編集。6波形、FREE/SYNCレート、1基あたり単一出力先、複数寄与の合算、基準値と有効値の分離、整数量子化・範囲制限。長さ変調でトラック位相のみ正規化する。
 - **Jitterイベント処理:** 各トラック独立のInsert/Drop/Shift/Mix、強度・同期間隔・符号付きシフト範囲・任意Seed。固定サイズの非破壊イベントマスクを生成し、Euclideanパターンは保持する。MODULATION画面で主要設定を編集できる。
-- **Turing Machine（S&Hフレーズ生成）:** `src/sequencer/Turing.{h,cpp}`がトラック別32バイトのレジスター、頭位置、CHANCEによる再抽選、スケール／ROOT量子化、±24半音クランプ、ループ境界DRIFT、シード再生成を実装する。クロックはTEMPO（16分tick）、EUCLID（jitter後のトラックトリガー）、FREE（Hz、テンポ非依存）の3モードで、RATEの解釈をモード別に持つ。生成した半音オフセットは`TickResult.pitchOffsets`で音声側へ渡し、サンプラーのplaybackRateとシンセのpitchHzへ反映する。GLIDEは最大0.5秒のブロック平滑化、ライブ表示は`ModulationMirror`経由でhead・32バイト・半音を公開する。TURING画面でENABLE／LOCKを含む13パラメーターを編集できる。LOCKはレジスターを固定したままヘッドだけを進め、CHANCEの再抽選とDRIFTの移調を止める。DICE（Confirmタップ）は0–65535の新シードを書き込み、CST SEEDをONにしてプロジェクトをmodifiedにするため、画面表示・発音・保存が同じフレーズを指す。MIXERのMUTE隣にもLOCK／DICEを配置した。DRIFTはループ末尾で更新し、新しい移調は次のループから適用する。プロジェクト形式v11で保存し、v10はLOCK=false、v6–v9は無効状態で移行する。
+- **Turing Machine（S&Hフレーズ生成）:** `src/sequencer/Turing.{h,cpp}`がトラック別32バイトのレジスター、頭位置、CHANCEによる再抽選、スケール／ROOT量子化、±24半音クランプ、ループ境界DRIFT、シード再生成を実装する。クロックはTEMPO（16分tick）、EUCLID（jitter後のトラックトリガー）、FREE（Hz、テンポ非依存）の3モードで、RATEの解釈をモード別に持つ。生成した半音オフセットは`TickResult.pitchOffsets`で音声側へ渡し、サンプラーのplaybackRateとシンセのpitchHzへ反映する。GLIDEは最大0.5秒のブロック平滑化、ライブ表示は`ModulationMirror`経由でhead・32バイト・半音を公開する。TURING画面でENABLE／LOCKを含む13パラメーターを編集できる。LOCKはレジスターを固定したままヘッドだけを進め、CHANCEの再抽選とDRIFTの移調を止める。DICE（Confirmタップ）は0–65535の新シードを書き込み、CST SEEDをONにしてプロジェクトをmodifiedにするため、画面表示・発音・保存が同じフレーズを指す。MIXERのMUTE隣にもLOCK／DICEを配置した。DRIFTはループ末尾で更新し、新しい移調は次のループから適用する。プロジェクト形式（現行v12）で保存し、v10はLOCK=false、v6–v9は無効状態で移行する。
 - **MIDI境界とデータモデル:** トランスポートクロック、音声・入力・MIDI・トリガーのインターフェース。SystemSettingsとProjectDataは独立したバージョン番号を持ち、SystemCapabilitiesによる設定カテゴリの機種別可用性判定を備える。Windows向けにWinMM入出力バックエンド、24 PPQNクロック追従、Start/Stop/Continue、マスターBPMに追従する常時Clock Out、MIDI楽器（Note Out）、SYSTEM MIDIトグルを実装済み。入出力は独立にオープンし、片方のみのポートでも動作する。
-- **プロジェクト操作:** UIからの保存・読み込み・新規・上書き確認要求をSDLアプリが受け取り、`ProjectStore`がv11形式でシリアライズ／復元する。v10はLOCK=falseで、v6–v9はTuring無効で読み込み時に移行する。トラック別サンプルパスは百分率エンコードして保存し、復元時は相対／絶対パスを解決する。
+- **プロジェクト操作:** UIからの保存・読み込み・新規・上書き確認要求をSDLアプリが受け取り、`ProjectStore`がv12形式でシリアライズ／復元する。v11以前のPlaitsモデル番号は`LegacyPlaitsModelMap`で新番号へ変換し、v10はLOCK=false、v6–v9はTuring無効で読み込み時に移行する。トラック別サンプルパスは百分率エンコードして保存し、復元時は相対／絶対パスを解決する。
 - **自動テストのソース:** シーケンサーの境界条件、分布、位相、ティックスケジュール、LFO、Jitter、Turingの決定性／動作モード、および入力・UI状態遷移のテストコード。
 - **ビルド設定のひな型:** CMake のコア・ライブラリーとテストターゲット、Linux ARM hard-float と AArch64 用のクロスコンパイル設定例。
 
 ### 未実装
 
-- **楽器の実機評価:** 軽量VA／Plaitsの実機計測・音質改善、Braids／Plaits候補との比較、一次ローパスより高度なフィルターの実装。
+- **楽器の実機評価:** Mutable系エンジンの実機CPU計測、Plaits decay／lpg_colourやRings positionの公開、一次ローパスより高度なフィルターの実装。
 - **プロジェクト管理:** Save Asの保存先選択UIとOS標準ファイルダイアログ、サンプル欠落時のユーザー向け復旧導線。
 - **SYSTEM設定:** 実機での設定書き込み先の確認、MIDIポートのホットプラグ検出。
 - **MIDI:** CC入力とパラメーター割り当て、MIDI Learn、Note In、複数ポート同時利用、ホットプラグ、実機でのクロック追従精度確認。
-- **実機固有の入力・保存・配布:** Brick Pro／NextUIを含む各機種のボタンプロファイルと書き込み先、PortMaster起動スクリプト、同梱ランタイム、メタデータ／スクリーンショット／ライセンスを含むパッケージ。Brick Proでの起動・音声・入力・終了確認。
+- **実機固有の入力・保存・配布:** R36S以外（Brick Pro／NextUIなど）のボタンプロファイルと書き込み先、同梱ランタイム。PortMaster起動スクリプト・メタデータ・MIT表記を含むパッケージはR36Sで動作確認済み。Brick Proでの起動・音声・入力・終了確認は未実施。
 - **非 Linux 対応:** Windows／macOSネイティブビルドの実証、および非Linuxハンドヘルドへの移植。
 
 ### 検証済み／未検証
 
 - **値編集の操作体系を統一（2026-11-01）。** A（キーボードはCtrl）を押しながら←→で±1単位、↑↓で±10単位に変更した（MAIN／EDIT／SOUND／MODULATION／TURING／MIXER。SYSTEMは対象外）。1単位は従来の「微調整」ステップ（%系は1%、PITCHは1 Hz、CUTOFFは100 Hz、DLY TIMEは5 msなど）。A単独なしの←→は従来どおり列移動で、A+↑↓は行移動ではなく値変更になる。スイッチ／列挙値は1押し1ステップのまま、MODELは10個送り。フッターのヒントも更新し、UIテストの期待値を新しい刻みへ変更してA+↑↓のテストを追加、CTest 2/2成功。実機での操作感は未確認。
+
+- **v0.3.0リリース（2026-11-01）。** `PocketEuclidean-PortMaster-aarch64.zip`（`__aarch64_`シンボル0件、Mutable InstrumentsのMITライセンス文同梱）を作成し、作者がR36Sで動作確認した。CPU負荷・長時間動作の計測値はなく、R36S以外は未確認。
 
 - **Plaits／Braids／Ringsを本物のMutable Instruments DSPへ置換（2026-11-01）。** 自作の「Plaits風」近似をやめ、MITライセンスのpichenettes/eurorack・stmlib（コミットは`third_party/mutable/README.md`に記載）をvendorし`mutable_dsp`ライブラリとしてビルドした。`PlaitsVoice`は`plaits::Voice`（24エンジン）、新規`BraidsVoice`は`braids::MacroOscillator`（47シェイプ）、新規`RingsVoice`は`rings::Part`（6共鳴モデル、内蔵エキサイター）をラップし、各48 kHz（Braidsは96 kHzからデシメート）出力を線形補間でデバイスレートへ変換する。パラメーター対応はPlaits: HARMONIC=color／TIMBRE／MORPH、Braids: TIMBRE／COLOR（MORPH無効）、Rings: STRUCT=color／BRIGHT=timbre／DAMPING=morph。ENGINEはVA→PLAITS→BRAIDS→RINGSを循環し、モデル数の違いはクランプする。プロジェクト形式をv12へ上げ、v11以前の旧16モデル番号は`LegacyPlaitsModelMap`で近い新モデルへ移行する。Windowsで全モデル・44.1/48 kHzの有限・非無音・有界と、代表モデル（Plaits 0／13、Braids 0／3、Rings 0／2）の220 Hz±3%のピッチを自動テストで確認し、CTest 2/2成功。**実機での音質・CPU負荷は未確認**（Plaitsのdecay／lpg_colourは未公開、Ringsの強度は固定position）。アプリ側のADエンベロープ／フィルターはMI内蔵のLPGに加えてかかる。
 
@@ -188,7 +190,7 @@
 
 ### Phase 5 — 音源・エフェクトと SOUND 画面
 
-- `ISynthVoice`、`SynthVoiceRack`、`BasicVaVoice`、`PlaitsVoice`（16エンジン）、AD VCA、トラック別ローパス、SOUND画面のパラメーター操作とaudio queue handoff、エンジンタイプ／MODEL切替は実装済み。これらをベースラインとして測定し、Braids／Plaits候補と同じ条件で比較する。外部実装を取り込む前に対象ファイル単位のライセンスを確認する。
+- `ISynthVoice`、`SynthVoiceRack`、`BasicVaVoice`、`PlaitsVoice`／`BraidsVoice`／`RingsVoice`（本物のMutable DSP）、AD VCA、トラック別ローパス、SOUND画面のパラメーター操作とaudio queue handoff、エンジンタイプ／MODEL切替は実装済み。これらの実機CPU負荷を測定する。外部実装を追加で取り込む前に対象ファイル単位のライセンスを確認する。
 - 8トラック同時発音のBrick Pro CPU時間・メモリー・callback期限を測り、予算を満たす最小構成を選定する。測定前にエンジン数や同時voice性能を保証しない。
 - 一次ローパスより高度なフィルターを実装する。ディレイとセンドのルーティングは実装済み。
 - 低負荷機器で CPU 使用率とオーディオ安定性を確認する。
@@ -197,8 +199,8 @@
 
 ### Phase 6 — プロジェクト保存とファイル操作
 
-- プロジェクトは`--data`配下の`project.pec`へ保存する。バージョン付き形式（v11）、入力検証、未知／非対応バージョンのエラー、v6–v10の移行は実装済み。Save Asの保存先選択とOSごとの標準ファイルダイアログは未実装。
-- トラック別WAVはファイルセレクタで選択し、v11にパスを保存する。相対／絶対パスの解決と、読み込み失敗時のビルトインフォールバックは実装済み。欠落サンプルのユーザー向け復旧導線は未実装。
+- プロジェクトは`--data`配下の`project.pec`へ保存する。バージョン付き形式（v12）、入力検証、未知／非対応バージョンのエラー、v6–v11の移行は実装済み。Save Asの保存先選択とOSごとの標準ファイルダイアログは未実装。
+- トラック別WAVはファイルセレクタで選択し、プロジェクトにパスを保存する。相対／絶対パスの解決と、読み込み失敗時のビルトインフォールバックは実装済み。欠落サンプルのユーザー向け復旧導線は未実装。
 
 **完了条件:** 8トラックを含む全必須状態を保存・復元し、失敗時にデータを黙って破棄しない。
 
@@ -239,7 +241,7 @@ Note Outは満たす。CC／Learn／Note Inは未完了。
 - Brick Pro上のNextUI／PortMaster実装と、選定した各バージョンのPortMaster環境を実機で確認する。
 - Allwinner A133PのCPU能力だけでなく、実際のLinuxユーザーランドABI、コンパイラー／sysroot、SDL2のリンクと依存ライブラリーを実機で確認する。AArch64クロスビルド自体は再現可能なスクリプトで確認済み。
 - SDL2の表示・GameController・音声コールバック初期化を実機検証する。48 kHzは前提にせず、デバイスが受理するサンプルレートとバッファーを確認する。
-- PortMasterパッケージのLaunch script、`port.json`、README、640×480スクリーンショット、実行ファイル／アセットは作成済み。プロジェクトおよび第三者ライセンスを確定して同梱する。
+- PortMasterパッケージのLaunch script、`port.json`、README、640×480スクリーンショット、実行ファイル／アセットは作成済み。Mutable InstrumentsのMITライセンス文はzipの`licenses/`へ同梱済み。プロジェクト自身とSDL2等の第三者ライセンスは確定して同梱する。
 - ランチャーから設定／プロジェクトの永続保存先、ログ、必要なPortMaster環境初期化、正常終了とNextUIへの復帰を検証する。
 - SDL2／OS共有ライブラリーの依存とライセンスを監査し、対象互換性を確認していないライブラリーを同梱しない。
 - デスクトップWindowsはビルド・テスト済み。Linux／macOSと、優先する実機ハンドヘルドを個別にビルド・テストする。
