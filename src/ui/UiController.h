@@ -294,6 +294,11 @@ public:
     void setModified(bool modified) noexcept { state_.modified = modified; }
 
 private:
+    static constexpr int ValueCoarseMultiplier = 10;
+    // Scales the per-press step of numeric fields; 1 except while dispatching
+    // A+Up/Down.
+    int valueMultiplier_ = 1;
+
     void dispatchModal(Action action);
     void dispatchMain(ActionEvent event);
     void dispatchEdit(ActionEvent event);

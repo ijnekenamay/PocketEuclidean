@@ -2,18 +2,41 @@
 
 #include "audio/SynthVoice.h"
 
-#include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 namespace pocket::audio {
 
-// Multi-engine voice inspired by Mutable Instruments Plaits. The engine is
-// selected from the morph control so a single continuous parameter can scan
-// all sixteen models. All state is per-instance: voices on different tracks
-// never share oscillators, noise generators, or envelopes.
+// Shared helpers for the Mutable Instruments voice wrappers.
+inline bool mutableParametersValid(const SynthParameters& p) noexcept {
+    return std::isfinite(p.pitchHz) && p.pitchHz > 0.0F &&
+           std::isfinite(p.timbre) && p.timbre >= 0.0F && p.timbre <= 1.0F &&
+           std::isfinite(p.color) && p.color >= 0.0F && p.color <= 1.0F &&
+           std::isfinite(p.morph) && p.morph >= 0.0F && p.morph <= 1.0F &&
+           std::isfinite(p.level) && p.level >= 0.0F && p.level <= 1.0F;
+}
+
+inline float midiNoteFromPitchHz(float hz) noexcept {
+    return 69.0F + 12.0F * std::log2(hz / 440.0F);
+}
+
+// Per-track voice running the real Plaits DSP (third_party/mutable). Plaits
+// is a 48 kHz design, so its output is resampled to the device rate.
+//
+// Parameter roles follow the hardware: color is HARMONICS, timbre is TIMBRE,
+// morph is MORPH, and model selects the engine (0..23). A trigger drives the
+// built-in decay envelope and low-pass gate, as with a patched TRIG input.
+// All state lives in a heap block allocated at construction, so rendering
+// never allocates and tracks never share state.
 class PlaitsVoice final : public ISynthVoice {
 public:
+    PlaitsVoice();
+    ~PlaitsVoice() override;
+    PlaitsVoice(const PlaitsVoice&) = delete;
+    PlaitsVoice& operator=(const PlaitsVoice&) = delete;
+
     bool setParameters(const SynthParameters& parameters) noexcept override;
     bool noteOn(float velocity) noexcept override;
     void noteOff() noexcept override;
@@ -22,35 +45,11 @@ public:
                 std::uint32_t sampleRate) noexcept override;
     bool isRealtimeSafe() const noexcept override { return true; }
 
-    bool isActive() const noexcept { return active_; }
+    bool isActive() const noexcept;
 
 private:
-    void applyParameters(const SynthParameters& params) noexcept;
-
-    SynthParameters parameters_{};
-    float velocity_ = 0.0F;
-    bool active_ = false;
-
-    float enginePhase_ = 0.0F;
-    // Seconds since note-on. Envelopes must not use the oscillator phase,
-    // otherwise the amplitude restarts once per pitch cycle.
-    float ageSeconds_ = 0.0F;
-    int currentEngine_ = 0;
-
-    // Per-engine state (formerly function-local statics shared by all tracks).
-    float drumPhase_ = 0.0F;
-    float particleAgeSeconds_ = 0.0F;
-    std::array<float, 128> stringDelay_{};
-    std::size_t stringDelayIndex_ = 0;
-    float lowPassGateState_ = 0.0F;
-    float noiseLowPassState_ = 0.0F;
-    float highPassPreviousInput_ = 0.0F;
-    float highPassState_ = 0.0F;
-    std::uint32_t drumNoise_ = 0x12345678U;
-    std::uint32_t snareNoise_ = 0x87654321U;
-    std::uint32_t hiHatNoise_ = 0xDEADBEEFU;
-    std::uint32_t coloredNoise_ = 0xCAFEBABEU;
-    std::uint32_t particleNoise_ = 0x11223344U;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace pocket::audio

@@ -755,8 +755,16 @@ void testSynthEngineSelection() {
 
     ui.dispatch({Action::Confirm});
     expect(ui.effectiveTrackState(0).synth.engineType ==
+               SynthEngineType::Braids,
+           "confirm cycles the engine field to Braids");
+    ui.dispatch({Action::Confirm});
+    expect(ui.effectiveTrackState(0).synth.engineType ==
+               SynthEngineType::Rings,
+           "confirm cycles the engine field to Rings");
+    ui.dispatch({Action::Confirm});
+    expect(ui.effectiveTrackState(0).synth.engineType ==
                SynthEngineType::BasicVa,
-           "confirm toggles the discrete engine field back to BASIC-VA");
+           "confirm wraps the engine field back to BASIC-VA");
 
     ui.dispatch({Action::NavDown});
     expect(ui.state().soundField == SoundField::Model,
@@ -779,17 +787,17 @@ void testSynthEngineSelection() {
            "model change is published through the audio parameter queue");
     ui.dispatch({Action::NavLeft, false, true});
     ui.dispatch({Action::NavLeft, false, true});
-    expect(ui.effectiveTrackState(0).synth.model == 15,
+    expect(ui.effectiveTrackState(0).synth.model == 23,
            "model field wraps from zero to the last model");
 
     sequencer.setInstrument(0, InstrumentType::Sampler);
     ui.dispatch({Action::NavUp});
     ui.dispatch({Action::Confirm});
-    expect(ui.effectiveTrackState(0).synth.model == 15,
+    expect(ui.effectiveTrackState(0).synth.model == 23,
            "confirm on EngineType is ignored while track instrument is Sampler");
     ui.dispatch({Action::NavDown});
     ui.dispatch({Action::NavRight, false, true});
-    expect(ui.effectiveTrackState(0).synth.model == 15,
+    expect(ui.effectiveTrackState(0).synth.model == 23,
            "A plus right cannot edit a subdued model row");
 
     sequencer.setInstrument(0, InstrumentType::Synth);
@@ -984,8 +992,8 @@ void testUiAudioParameterQueue() {
     ui.dispatch({Action::NavRight, false, true});
     expect(queue.pop(command) &&
                command.parameter == audio::AudioParameter::TrackVolume &&
-               command.value == 55.0F &&
-               ui.state().audioTrackSettings[0].volume == 55 &&
+               command.value == 51.0F &&
+               ui.state().audioTrackSettings[0].volume == 51 &&
                sequencer.track(0).volume == 50,
            "mixer edits keep UI state separate until the audio thread applies them");
     ui.dispatch({Action::MuteToggle});
@@ -1055,12 +1063,22 @@ void testScreensAndEditRanges() {
     expect(ui.state().mixerField == MixerField::Volume,
            "mixer left moves back to volume column");
     ui.dispatch({Action::NavLeft, false, true});
-    expect(sequencer.track(0).volume == 95 &&
+    expect(sequencer.track(0).volume == 99 &&
                ui.state().mixerField == MixerField::Volume,
            "mixer adjusts the selected track volume with A plus left/right");
     ui.dispatch({Action::NavRight, false, true});
     expect(sequencer.track(0).volume == 100,
            "mixer volume remains within its 0 to 100 percent range");
+    ui.dispatch({Action::NavDown, false, true});
+    expect(sequencer.track(0).volume == 90 && ui.state().selectedTrack == 0 &&
+               ui.state().mixerField == MixerField::Volume,
+           "A plus down lowers the focused value by ten without moving rows");
+    ui.dispatch({Action::NavUp, false, true});
+    ui.dispatch({Action::NavUp, false, true});
+    expect(sequencer.track(0).volume == 100,
+           "A plus up raises the focused value by ten and clamps at the range end");
+    ui.dispatch({Action::NavLeft, false, true});
+    ui.dispatch({Action::NavRight, false, true});
     ui.dispatch({Action::NavLeft, false, true});
     ui.dispatch({Action::NavRight});
     ui.dispatch({Action::NavLeft, false, true});
@@ -1151,7 +1169,7 @@ void testScreensAndEditRanges() {
     ui.dispatch({Action::NavDown});
     ui.dispatch({Action::NavLeft});
     ui.dispatch({Action::NavRight, true});
-    expect(sequencer.track(0).volume == 91,
+    expect(sequencer.track(0).volume == 95,
            "fine adjustment changes volume by one after coarse adjustment");
 
     ui.dispatch({Action::Back});
@@ -1201,7 +1219,7 @@ void testScreensAndEditRanges() {
            "modulation screen exposes an accessible per-track jitter enable");
     modulationUi.dispatch({Action::NavDown});
     modulationUi.dispatch({Action::NavRight, false, true});
-    expect(modulationSequencer.track(0).jitter.intensity == 5,
+    expect(modulationSequencer.track(0).jitter.intensity == 1,
            "modulation screen exposes per-track jitter intensity");
     modulationUi.dispatch({Action::ScreenNext});
     expect(modulationUi.state().screen == Screen::Turing,
@@ -1566,14 +1584,14 @@ void testEffectiveTrackStateAndTempoControls() {
     expect(synthDelayUi.state().soundField == SoundField::Pitch,
            "SOUND navigation reaches Synth Pitch field");
     synthDelayUi.dispatch({Action::NavRight, false, true});
-    expect(synthDelayUi.effectiveTrackState(0).synth.pitchHz == 120.0F &&
+    expect(synthDelayUi.effectiveTrackState(0).synth.pitchHz == 111.0F &&
                synthDelaySeq.track(0).synth.pitchHz == 110.0F,
            "live Synth Pitch edit updates effectiveTrackState and queues command");
     synthDelayUi.dispatch({Action::NavDown});
     expect(synthDelayUi.state().soundField == SoundField::Morph,
            "SOUND navigation reaches Synth Morph field");
     synthDelayUi.dispatch({Action::NavRight, false, true});
-    expect(std::abs(synthDelayUi.effectiveTrackState(0).synth.morph - 0.55F) < 1e-4F,
+    expect(std::abs(synthDelayUi.effectiveTrackState(0).synth.morph - 0.51F) < 1e-4F,
            "live Synth Morph edit updates effectiveTrackState");
     for (int i = 0; i < 4; ++i) {
         synthDelayUi.dispatch({Action::NavDown});
@@ -1581,19 +1599,19 @@ void testEffectiveTrackStateAndTempoControls() {
     expect(synthDelayUi.state().soundField == SoundField::DelayTime,
            "SOUND navigation reaches DelayTime field");
     synthDelayUi.dispatch({Action::NavRight, false, true});
-    expect(synthDelayUi.effects().delayMilliseconds == 275,
+    expect(synthDelayUi.effects().delayMilliseconds == 255,
            "SOUND > DelayTime adjusts delay time in ms");
     synthDelayUi.dispatch({Action::NavDown});
     expect(synthDelayUi.state().soundField == SoundField::DelayFeedback,
            "SOUND navigation reaches DelayFeedback field");
     synthDelayUi.dispatch({Action::NavRight, false, true});
-    expect(std::abs(synthDelayUi.effects().delayFeedback - 0.30F) < 1e-4F,
+    expect(std::abs(synthDelayUi.effects().delayFeedback - 0.26F) < 1e-4F,
            "SOUND > DelayFeedback adjusts feedback ratio");
     synthDelayUi.dispatch({Action::NavDown});
     expect(synthDelayUi.state().soundField == SoundField::DelayMix,
            "SOUND navigation reaches DelayMix field");
     synthDelayUi.dispatch({Action::NavRight, false, true});
-    expect(std::abs(synthDelayUi.effects().delayMix - 0.25F) < 1e-4F,
+    expect(std::abs(synthDelayUi.effects().delayMix - 0.21F) < 1e-4F,
            "SOUND > DelayMix adjusts wet mix ratio");
 }
 

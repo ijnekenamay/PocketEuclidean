@@ -1062,6 +1062,124 @@ void testBasicVaVoice() {
            "basic VA note-off immediately silences oscillator output");
 }
 
+namespace {
+
+template <typename Voice>
+std::vector<float> renderMutableVoice(Voice& voice, std::uint32_t rate,
+                                      std::size_t frames) {
+    std::vector<float> out(frames, 0.0F);
+    constexpr std::size_t Chunk = 256;
+    for (std::size_t at = 0; at < frames; at += Chunk) {
+        const std::size_t n = std::min(Chunk, frames - at);
+        if (!voice.render(out.data() + at, n, rate)) {
+            out.clear();
+            break;
+        }
+    }
+    return out;
+}
+
+// Normalized autocorrelation pitch estimate over [minHz, maxHz].
+float estimatePitchHz(const std::vector<float>& signal, std::uint32_t rate,
+                      float minHz, float maxHz) {
+    const std::size_t begin = signal.size() / 4;
+    const std::size_t window = signal.size() / 4;
+    const std::size_t minLag = static_cast<std::size_t>(rate / maxHz);
+    const std::size_t maxLag = static_cast<std::size_t>(rate / minHz);
+    double best = -1.0;
+    std::size_t bestLag = 0;
+    for (std::size_t lag = minLag; lag <= maxLag; ++lag) {
+        double num = 0.0;
+        double den = 0.0;
+        for (std::size_t i = begin; i < begin + window; ++i) {
+            num += signal[i] * signal[i + lag];
+            den += signal[i + lag] * signal[i + lag];
+        }
+        const double score = den > 0.0 ? num / std::sqrt(den) : 0.0;
+        if (score > best) {
+            best = score;
+            bestLag = lag;
+        }
+    }
+    return bestLag == 0 ? 0.0F
+                        : static_cast<float>(rate) /
+                              static_cast<float>(bestLag);
+}
+
+} // namespace
+
+void testMutableEngines() {
+    using namespace pocket;
+    using namespace pocket::audio;
+
+    const SynthEngineType engines[] = {SynthEngineType::Plaits,
+                                       SynthEngineType::Braids,
+                                       SynthEngineType::Rings};
+    for (const auto rate : {44100U, 48000U}) {
+        for (const auto engine : engines) {
+            SelectableSynthVoice voice;
+            for (int model = 0; model < synthModelCount(engine); ++model) {
+                SynthParameters parameters;
+                parameters.engine = engine;
+                parameters.model = static_cast<std::uint8_t>(model);
+                parameters.pitchHz = 220.0F;
+                parameters.level = 0.8F;
+                parameters.timbre = 0.5F;
+                parameters.color = 0.5F;
+                parameters.morph = 0.5F;
+                const bool ok = voice.setParameters(parameters) &&
+                                voice.noteOn(1.0F);
+                const auto out = renderMutableVoice(voice, rate, rate / 2);
+                bool finite = ok && !out.empty();
+                float peak = 0.0F;
+                for (const float s : out) {
+                    finite = finite && std::isfinite(s) && std::abs(s) <= 1.0F;
+                    peak = std::max(peak, std::abs(s));
+                }
+                expect(finite && peak > 1.0e-3F,
+                       "mutable engine " + std::to_string(static_cast<int>(engine)) +
+                           " model " + std::to_string(model) + " at " +
+                           std::to_string(rate) +
+                           " Hz is finite and audible (peak " +
+                           std::to_string(peak) + ")");
+                voice.noteOff();
+            }
+        }
+    }
+
+    struct PitchCase {
+        SynthEngineType engine;
+        int model;
+    };
+    // Models whose fundamental is unambiguous for the autocorrelation
+    // estimate; chosen to cover all three engines.
+    const PitchCase cases[] = {
+        {SynthEngineType::Plaits, 13}, {SynthEngineType::Plaits, 0},
+        {SynthEngineType::Braids, 0},  {SynthEngineType::Braids, 3},
+        {SynthEngineType::Rings, 0},   {SynthEngineType::Rings, 2},
+    };
+    for (const auto& c : cases) {
+        SelectableSynthVoice voice;
+        SynthParameters parameters;
+        parameters.engine = c.engine;
+        parameters.model = static_cast<std::uint8_t>(c.model);
+        parameters.pitchHz = 220.0F;
+        parameters.level = 0.8F;
+        parameters.timbre = 0.3F;
+        parameters.color = 0.3F;
+        parameters.morph = 0.3F;
+        voice.setParameters(parameters);
+        voice.noteOn(1.0F);
+        const auto out = renderMutableVoice(voice, 48000, 24000);
+        const float hz = estimatePitchHz(out, 48000, 100.0F, 500.0F);
+        expect(std::abs(hz - 220.0F) < 220.0F * 0.03F,
+               "mutable engine " + std::to_string(static_cast<int>(c.engine)) +
+                   " model " + std::to_string(c.model) +
+                   " plays the requested pitch (measured " +
+                   std::to_string(hz) + " Hz)");
+    }
+}
+
 void testSelectableSynthVoice() {
     using namespace pocket;
     using namespace pocket::audio;
@@ -1083,7 +1201,8 @@ void testSelectableSynthVoice() {
            "selectable voice renders the basic engine");
     voice.noteOff();
 
-    for (int engine = 0; engine < 16; ++engine) {
+    for (int engine = 0; engine < static_cast<int>(PlaitsModelCount);
+         ++engine) {
         parameters.model = static_cast<std::uint8_t>(engine);
         parameters.morph = 0.5F;
         parameters.engine = SynthEngineType::Plaits;
@@ -1111,10 +1230,13 @@ void testSelectableSynthVoice() {
         voice.noteOff();
     }
 
-    parameters.model = 16;
+    // Engine and model arrive as separate commands, so a transient
+    // mismatch must clamp instead of failing the audio callback.
+    parameters.model = 47;
     parameters.engine = SynthEngineType::Plaits;
-    expect(!voice.setParameters(parameters),
-           "Plaits voice rejects an out-of-range model index");
+    expect(voice.setParameters(parameters) && voice.noteOn(1.0F) &&
+               voice.render(output.data(), output.size(), 48000),
+           "Plaits voice clamps an out-of-range model index");
 
     for (std::size_t model = 0; model < PlaitsModelCount; ++model) {
         const std::string name = plaitsModelName(model);
@@ -1149,7 +1271,7 @@ void testSynthEngineParameterRouting() {
                rack.parameters(0).engine == SynthEngineType::BasicVa,
            "engine type command switches the rack voice back to BasicVA");
     expect(!renderer.applyCommand(
-               {AudioParameter::TrackSynthEngineType, 0, 2.0F}, 48000),
+               {AudioParameter::TrackSynthEngineType, 0, 4.0F}, 48000),
            "engine type command rejects out-of-range values");
 }
 
@@ -2082,7 +2204,7 @@ void testProjectStoreRoundTrip() {
                legacy, &error),
            "version 6 project without an engine type loads: " + error);
     expect(legacy.tracks[0].synth.engineType == SynthEngineType::BasicVa &&
-               legacy.tracks[0].synth.model == 7 &&
+               legacy.tracks[0].synth.model == 22 &&
                legacy.tracks[0].synth.pitchHz == 110.0F &&
                legacy.tracks[0].synth.morph == 0.5F &&
                legacy.tracks[0].synth.timbre == 0.4F &&
@@ -2119,7 +2241,7 @@ void testProjectStoreRoundTrip() {
                v8Legacy, &error),
            "version 8 projects still load: " + error);
     expect(v8Legacy.tracks[0].synth.engineType == SynthEngineType::Plaits &&
-               v8Legacy.tracks[0].synth.model == 3,
+               v8Legacy.tracks[0].synth.model == 12,
            "version 8 Plaits morph migrates to the matching model");
     expect(v8Legacy.tracks[0].samplePath.empty(),
            "version 8 projects start with built-in samples");
@@ -2129,7 +2251,7 @@ void testProjectStoreRoundTrip() {
     expect(!project::parseProject(
                "PocketEuclideanProject\n"
                "version 9\n"
-               "track.0.synth 1 16 110 0.5 0.4 0.3\n",
+               "track.0.synth 1 47 110 0.5 0.4 0.3\n",
                untouched),
            "version 9 rejects an out-of-range model index");
     expect(!project::parseProject(
@@ -2141,7 +2263,7 @@ void testProjectStoreRoundTrip() {
     expect(!project::parseProject(
                "PocketEuclideanProject\n"
                "version 7\n"
-               "track.0.synth 2 110 0.5 0.4 0.3\n",
+               "track.0.synth 4 110 0.5 0.4 0.3\n",
                untouched),
            "version 7 rejects an out-of-range engine type");
 
@@ -2912,6 +3034,7 @@ void testMasterBusToneAndMonoSpread() {
 }
 
 int main() {
+    testMutableEngines();
     testSettingsStore();
     testSettingsStoreMigration();
     testProjectSnapshotCoordinator();

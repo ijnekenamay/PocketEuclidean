@@ -42,16 +42,34 @@ struct TrackFilterSettings {
 
 enum class SynthEngineType : std::uint8_t {
     BasicVa,
-    Plaits
+    // Mutable Instruments DSP ports (see third_party/mutable).
+    Plaits,
+    Braids,
+    Rings
 };
+
+inline constexpr int SynthEngineTypeCount = 4;
+
+// Number of selectable models per engine. Plaits has 24 engines, Braids has
+// 47 macro-oscillator shapes and Rings has 6 resonator models.
+constexpr int synthModelCount(SynthEngineType type) noexcept {
+    switch (type) {
+    case SynthEngineType::Plaits: return 24;
+    case SynthEngineType::Braids: return 47;
+    case SynthEngineType::Rings: return 6;
+    case SynthEngineType::BasicVa: break;
+    }
+    return 1;
+}
 
 struct TrackSynthSettings {
     static constexpr float MinPitchHz = 20.0F;
     static constexpr float MaxPitchHz = 2000.0F;
-    static constexpr int ModelCount = 16;
+    // Upper bound across engines; voices clamp to their own synthModelCount.
+    static constexpr int ModelCount = 47;
 
     SynthEngineType engineType = SynthEngineType::BasicVa;
-    // Selected Plaits model. morph stays a continuous parameter inside it.
+    // Model within the selected engine. color/timbre/morph stay continuous.
     std::uint8_t model = 0;
     float pitchHz = 110.0F;
     float morph = 0.5F;

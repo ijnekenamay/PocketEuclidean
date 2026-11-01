@@ -116,6 +116,21 @@ void UiController::dispatch(ActionEvent event) {
         return;
     }
 
+    // A (or Ctrl) held: left/right changes the focused value by one unit and
+    // up/down by ten. Rows and columns are reached without the modifier.
+    const bool horizontal = event.action == Action::NavLeft ||
+                            event.action == Action::NavRight;
+    const bool vertical =
+        event.action == Action::NavUp || event.action == Action::NavDown;
+    if (event.edit && (horizontal || vertical) &&
+        state_.screen != Screen::System) {
+        const bool increase = event.action == Action::NavRight ||
+                              event.action == Action::NavUp;
+        event.action = increase ? Action::NavRight : Action::NavLeft;
+        event.fine = true;
+        valueMultiplier_ = vertical ? ValueCoarseMultiplier : 1;
+    }
+
     switch (state_.screen) {
     case Screen::Main:
         dispatchMain(event);
@@ -139,6 +154,7 @@ void UiController::dispatch(ActionEvent event) {
         dispatchSystem(event);
         break;
     }
+    valueMultiplier_ = 1;
 }
 
 void UiController::dispatchModal(Action action) {
@@ -228,7 +244,7 @@ void UiController::dispatchMain(ActionEvent event) {
     case Action::NavRight: {
         const int direction = event.action == Action::NavRight ? 1 : -1;
         const bool fine = event.fine || state_.fineAdjust;
-        const double step = fine ? 1.0 : 5.0;
+        const double step = (fine ? 1.0 : 5.0) * valueMultiplier_;
         const double nextTempo = std::clamp(
             sequencer_.tempo() + static_cast<double>(direction) * step,
             Sequencer::MinTempoBpm, Sequencer::MaxTempoBpm);
@@ -400,7 +416,7 @@ void UiController::moveTuringColumn(int direction) noexcept {
 
 void UiController::changeTuringValue(int direction, bool fine) {
     auto config = sequencer_.track(state_.selectedTrack).turing;
-    const int step = fine ? 1 : 5;
+    const int step = (fine ? 1 : 5) * valueMultiplier_;
     switch (state_.turingField) {
     case TuringField::Enabled:
         config.enabled = !config.enabled;
@@ -415,7 +431,8 @@ void UiController::changeTuringValue(int direction, bool fine) {
             static_cast<std::size_t>(TuringRate::Count)));
         break;
     case TuringField::Length: {
-        const int length = static_cast<int>(config.length) + direction;
+        const int length =
+            static_cast<int>(config.length) + direction * valueMultiplier_;
         config.length = static_cast<std::uint8_t>(
             length < 2 ? 2 : length > 32 ? 32 : length);
         break;
@@ -427,7 +444,8 @@ void UiController::changeTuringValue(int direction, bool fine) {
         break;
     }
     case TuringField::Range: {
-        const int range = static_cast<int>(config.range) + direction;
+        const int range =
+            static_cast<int>(config.range) + direction * valueMultiplier_;
         config.range = static_cast<std::uint8_t>(
             range < 1 ? 1 : range > 24 ? 24 : range);
         break;
@@ -458,7 +476,7 @@ void UiController::changeTuringValue(int direction, bool fine) {
         break;
     case TuringField::Seed: {
         const auto seed = static_cast<std::int64_t>(config.randomSeed) +
-                          direction;
+                          direction * valueMultiplier_;
         config.randomSeed = static_cast<std::uint32_t>(
             seed < 0 ? 0 : seed > 65535 ? 65535 : seed);
         break;
@@ -568,11 +586,13 @@ bool UiController::soundFieldEnabled(SoundField field) const noexcept {
     case SoundField::EngineType:
         return synth;
     case SoundField::Model:
-        return synth && track.synth.engineType == SynthEngineType::Plaits;
+        return synth && track.synth.engineType != SynthEngineType::BasicVa;
     case SoundField::Pitch:
         // MIDI tracks use PITCH as the outgoing note root.
         return synth || midi;
     case SoundField::Morph:
+        // Braids has only two parameters (timbre and color).
+        return synth && track.synth.engineType != SynthEngineType::Braids;
     case SoundField::Timbre:
     case SoundField::Color:
         return synth;
@@ -594,7 +614,7 @@ void UiController::changeSoundValue(int direction, bool fine) {
     case SoundField::Attack:
     case SoundField::Decay: {
         auto envelope = track.envelope;
-        const float increment = fine ? 0.001F : 0.01F;
+        const float increment = (fine ? 0.001F : 0.01F) * static_cast<float>(valueMultiplier_);
         if (state_.soundField == SoundField::Attack) {
             envelope.attackSeconds +=
                 static_cast<float>(direction) * increment;
@@ -630,7 +650,8 @@ void UiController::changeSoundValue(int direction, bool fine) {
         if (state_.soundField == SoundField::FilterEnabled) {
             filter.enabled = !filter.enabled;
         } else {
-            const float cutoffIncrement = fine ? 100.0F : 1000.0F;
+            const float cutoffIncrement = (fine ? 100.0F : 1000.0F) *
+                                          static_cast<float>(valueMultiplier_);
             filter.cutoffHz +=
                 static_cast<float>(direction) * cutoffIncrement;
             filter.cutoffHz = std::clamp(
@@ -663,7 +684,8 @@ void UiController::changeSoundValue(int direction, bool fine) {
             audio::AudioParameter::TrackSynthPitch;
         float value = 0.0F;
         if (state_.soundField == SoundField::Pitch) {
-            const float step = fine ? 1.0F : 10.0F;
+            const float step = (fine ? 1.0F : 10.0F) *
+                               static_cast<float>(valueMultiplier_);
             synth.pitchHz = std::clamp(
                 synth.pitchHz + static_cast<float>(direction) * step,
                 TrackSynthSettings::MinPitchHz,
@@ -671,7 +693,8 @@ void UiController::changeSoundValue(int direction, bool fine) {
             parameter = audio::AudioParameter::TrackSynthPitch;
             value = synth.pitchHz;
         } else if (state_.soundField == SoundField::Morph) {
-            const float step = fine ? 0.01F : 0.05F;
+            const float step = (fine ? 0.01F : 0.05F) *
+                           static_cast<float>(valueMultiplier_);
             synth.morph = std::clamp(
                 std::round((synth.morph + static_cast<float>(direction) * step) *
                            100.0F) /
@@ -680,7 +703,8 @@ void UiController::changeSoundValue(int direction, bool fine) {
             parameter = audio::AudioParameter::TrackSynthMorph;
             value = synth.morph;
         } else if (state_.soundField == SoundField::Timbre) {
-            const float step = fine ? 0.01F : 0.05F;
+            const float step = (fine ? 0.01F : 0.05F) *
+                           static_cast<float>(valueMultiplier_);
             synth.timbre = std::clamp(
                 std::round((synth.timbre + static_cast<float>(direction) * step) *
                            100.0F) /
@@ -689,7 +713,8 @@ void UiController::changeSoundValue(int direction, bool fine) {
             parameter = audio::AudioParameter::TrackSynthTimbre;
             value = synth.timbre;
         } else {
-            const float step = fine ? 0.01F : 0.05F;
+            const float step = (fine ? 0.01F : 0.05F) *
+                           static_cast<float>(valueMultiplier_);
             synth.color = std::clamp(
                 std::round((synth.color + static_cast<float>(direction) * step) *
                            100.0F) /
@@ -712,17 +737,26 @@ void UiController::changeSoundValue(int direction, bool fine) {
         // Discrete two-value field: Left/Right and Confirm all toggle it, like
         // the filter-enable row, instead of clamping at an end value.
         auto synth = track.synth;
-        const auto nextEngine =
-            synth.engineType == SynthEngineType::Plaits
-                ? SynthEngineType::BasicVa
-                : SynthEngineType::Plaits;
+        const auto nextEngine = static_cast<SynthEngineType>(wrapIndex(
+            static_cast<int>(synth.engineType) + direction,
+            static_cast<std::size_t>(SynthEngineTypeCount)));
         synth.engineType = nextEngine;
         if (!postAudioParameter(audio::AudioParameter::TrackSynthEngineType,
                                 state_.selectedTrack,
-                                nextEngine == SynthEngineType::Plaits ? 1.0F
-                                                                      : 0.0F)) {
+                                static_cast<float>(nextEngine))) {
             state_.audioParameterRejected = true;
             return;
+        }
+        // Engines have different model counts; keep the model in range.
+        const int lastModel = synthModelCount(nextEngine) - 1;
+        if (synth.model > lastModel) {
+            synth.model = static_cast<std::uint8_t>(lastModel);
+            if (!postAudioParameter(audio::AudioParameter::TrackSynthModel,
+                                    state_.selectedTrack,
+                                    static_cast<float>(synth.model))) {
+                state_.audioParameterRejected = true;
+                return;
+            }
         }
         if (audioParameterQueue_ != nullptr ||
             sequencer_.setSynth(state_.selectedTrack, synth)) {
@@ -733,8 +767,8 @@ void UiController::changeSoundValue(int direction, bool fine) {
     case SoundField::Model: {
         auto synth = track.synth;
         const auto next = wrapIndex(
-            static_cast<int>(synth.model) + direction,
-            static_cast<std::size_t>(TrackSynthSettings::ModelCount));
+            static_cast<int>(synth.model) + direction * valueMultiplier_,
+            static_cast<std::size_t>(synthModelCount(synth.engineType)));
         synth.model = static_cast<std::uint8_t>(next);
         if (!postAudioParameter(audio::AudioParameter::TrackSynthModel,
                                 state_.selectedTrack,
@@ -752,7 +786,7 @@ void UiController::changeSoundValue(int direction, bool fine) {
         // Confirm opens the WAV browser; Left/Right have no value.
         return;
     case SoundField::DelayTime: {
-        const int step = fine ? 5 : 25;
+        const int step = (fine ? 5 : 25) * valueMultiplier_;
         const int nextMs = std::clamp(
             static_cast<int>(state_.effects.delayMilliseconds) +
                 direction * step,
@@ -768,7 +802,8 @@ void UiController::changeSoundValue(int direction, bool fine) {
         return;
     }
     case SoundField::DelayFeedback: {
-        const float step = fine ? 0.01F : 0.05F;
+        const float step = (fine ? 0.01F : 0.05F) *
+                           static_cast<float>(valueMultiplier_);
         const float nextFb = std::clamp(
             std::round((state_.effects.delayFeedback +
                         static_cast<float>(direction) * step) *
@@ -785,7 +820,8 @@ void UiController::changeSoundValue(int direction, bool fine) {
         return;
     }
     case SoundField::DelayMix: {
-        const float step = fine ? 0.01F : 0.05F;
+        const float step = (fine ? 0.01F : 0.05F) *
+                           static_cast<float>(valueMultiplier_);
         const float nextMix = std::clamp(
             std::round((state_.effects.delayMix +
                         static_cast<float>(direction) * step) *
@@ -830,9 +866,9 @@ void UiController::dispatchModulation(ActionEvent event) {
                 break;
             case ModulationField::JitterIntensity: {
                 const int amount = config.intensity +
-                                   direction * (event.fine || state_.fineAdjust
-                                                    ? 1
-                                                    : 5);
+                                   direction * valueMultiplier_ *
+                                       (event.fine || state_.fineAdjust ? 1
+                                                                        : 5);
                 config.intensity = static_cast<std::uint8_t>(
                     amount < 0 ? 0 : amount > 100 ? 100 : amount);
                 break;
@@ -846,7 +882,8 @@ void UiController::dispatchModulation(ActionEvent event) {
                     static_cast<int>(config.rate) + direction, 5));
                 break;
             case ModulationField::JitterShiftRange: {
-                const int range = config.shiftRange + direction;
+                const int range =
+                    config.shiftRange + direction * valueMultiplier_;
                 config.shiftRange = static_cast<std::uint8_t>(
                     range < 0 ? 0
                               : range > MaxJitterShiftTicks
@@ -859,7 +896,7 @@ void UiController::dispatchModulation(ActionEvent event) {
                 break;
             case ModulationField::JitterSeed: {
                 const auto seed = static_cast<std::int64_t>(config.randomSeed) +
-                                  direction;
+                                  direction * valueMultiplier_;
                 config.randomSeed = static_cast<std::uint32_t>(
                     seed < 0 ? 0 : seed > 65535 ? 65535 : seed);
                 break;
@@ -889,9 +926,10 @@ void UiController::dispatchModulation(ActionEvent event) {
             break;
         case ModulationField::Rate:
             if (config.rateMode == LfoRateMode::Free) {
-                config.rateHz += direction * (event.fine || state_.fineAdjust
-                                                   ? 0.01
-                                                   : 0.1);
+                config.rateHz += direction * valueMultiplier_ *
+                                          (event.fine || state_.fineAdjust
+                                               ? 0.01
+                                               : 0.1);
                 if (config.rateHz < ModulationEngine::MinFreeRateHz) {
                     config.rateHz = ModulationEngine::MinFreeRateHz;
                 } else if (config.rateHz > ModulationEngine::MaxFreeRateHz) {
@@ -909,7 +947,8 @@ void UiController::dispatchModulation(ActionEvent event) {
             break;
         case ModulationField::Amount: {
             const int step = (event.fine || state_.fineAdjust) ? 1 : 2;
-            const int amount = config.amount + direction * step;
+            const int amount =
+                config.amount + direction * step * valueMultiplier_;
             config.amount = static_cast<std::int8_t>(
                 amount < -31 ? -31 : amount > 31 ? 31 : amount);
             break;
@@ -1053,7 +1092,7 @@ void UiController::dispatchMixer(ActionEvent event) {
 
 void UiController::changeMixerValue(int direction, bool fine) {
     if (state_.mixerMasterRow) {
-        const int step = fine ? 1 : 5;
+        const int step = (fine ? 1 : 5) * valueMultiplier_;
         const int volume =
             static_cast<int>(systemSettings_.audio.masterVolumePercent) +
             direction * step;
@@ -1071,7 +1110,7 @@ void UiController::changeMixerValue(int direction, bool fine) {
     const auto track = audioSettings(state_.selectedTrack);
     switch (state_.mixerField) {
     case MixerField::Volume: {
-        const int step = fine ? 1 : 5;
+        const int step = (fine ? 1 : 5) * valueMultiplier_;
         const int volume = static_cast<int>(track.volume) + direction * step;
         const auto bounded = static_cast<std::uint8_t>(
             volume < 0 ? 0 : volume > 100 ? 100 : volume);
@@ -1088,7 +1127,8 @@ void UiController::changeMixerValue(int direction, bool fine) {
         break;
     }
     case MixerField::Pan: {
-        const float step = fine ? 0.01F : 0.1F;
+        const float step = (fine ? 0.01F : 0.1F) *
+                           static_cast<float>(valueMultiplier_);
         const float pan = std::clamp(track.pan + direction * step, -1.0F, 1.0F);
         if (!postAudioParameter(audio::AudioParameter::TrackPan,
                                 state_.selectedTrack, pan)) {
@@ -1129,7 +1169,8 @@ void UiController::changeMixerValue(int direction, bool fine) {
     case MixerField::DelaySend: {
         const bool reverb = state_.mixerField == MixerField::ReverbSend;
         const float current = reverb ? track.reverbSend : track.delaySend;
-        const float step = fine ? 0.01F : 0.05F;
+        const float step = (fine ? 0.01F : 0.05F) *
+                           static_cast<float>(valueMultiplier_);
         const float value = std::clamp(current + direction * step, 0.0F, 1.0F);
         if (!postAudioParameter(
                 reverb ? audio::AudioParameter::TrackReverbSend
@@ -1157,7 +1198,7 @@ void UiController::dispatchSystem(ActionEvent event) {
         const bool fine = event.fine || state_.fineAdjust;
         if (state_.systemCategory ==
             platform::SettingsCategory::ClockAndTransport) {
-            const double step = fine ? 1.0 : 5.0;
+            const double step = (fine ? 1.0 : 5.0) * valueMultiplier_;
             const double nextTempo = std::clamp(
                 systemSettings_.clock.initialTempoBpm +
                     static_cast<double>(direction) * step,
@@ -1229,7 +1270,8 @@ void UiController::changeEditValue(int direction, bool fine) {
 
     switch (state_.editField) {
     case EditField::Length: {
-        const int next = static_cast<int>(rhythm.length) + direction;
+        const int next =
+            static_cast<int>(rhythm.length) + direction * valueMultiplier_;
         rhythm.length = static_cast<std::uint8_t>(next < 2 ? 2 : next > 32 ? 32 : next);
         if (rhythm.fill > rhythm.length) {
             rhythm.fill = rhythm.length;
@@ -1238,14 +1280,16 @@ void UiController::changeEditValue(int direction, bool fine) {
         break;
     }
     case EditField::Fill: {
-        const int next = static_cast<int>(rhythm.fill) + direction;
+        const int next =
+            static_cast<int>(rhythm.fill) + direction * valueMultiplier_;
         rhythm.fill = static_cast<std::uint8_t>(
             next < 1 ? 1 : next > rhythm.length ? rhythm.length : next);
         sequencer_.setRhythm(state_.selectedTrack, rhythm);
         break;
     }
     case EditField::Offset: {
-        const int next = static_cast<int>(rhythm.offset) + direction;
+        const int next =
+            static_cast<int>(rhythm.offset) + direction * valueMultiplier_;
         rhythm.offset = static_cast<std::uint8_t>(next < 0 ? 0 : next > 31 ? 31 : next);
         sequencer_.setRhythm(state_.selectedTrack, rhythm);
         break;
@@ -1257,7 +1301,7 @@ void UiController::changeEditValue(int direction, bool fine) {
         break;
     }
     case EditField::Volume: {
-        const int increment = fine ? 1 : 5;
+        const int increment = (fine ? 1 : 5) * valueMultiplier_;
         const auto audioState = audioSettings(state_.selectedTrack);
         const int next =
             static_cast<int>(audioState.volume) + direction * increment;

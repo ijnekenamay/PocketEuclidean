@@ -1347,7 +1347,7 @@ void drawSoundVisualizer(SDL_Renderer* renderer,
     const std::int32_t cardW = (width - 2 * gap) / 3;
     const std::int32_t cardH = height;
     const bool plaits =
-        track.synth.engineType == pocket::SynthEngineType::Plaits;
+        track.synth.engineType != pocket::SynthEngineType::BasicVa;
     const bool midi = track.instrument == pocket::InstrumentType::Midi;
     // Seconds-scale drift so the preview moves only while transport runs.
     const float drift =
@@ -2271,8 +2271,8 @@ void renderMixerScreen(SDL_Renderer* renderer,
 
     drawFooter(renderer, palette, width, height,
                masterSelected
-                   ? "UP/DN:TRACK  A/CTRL+LEFT/RIGHT:VOLUME  TAB:SCREEN"
-                   : "UP/DN:TRACK  LEFT/RIGHT:FIELD  A/CTRL+LEFT/RIGHT:VALUE  TAB:SCREEN");
+                   ? "UP/DN:TRACK  A+L/R:+-1  A+U/D:+-10  TAB:SCREEN"
+                   : "UP/DN:TRACK  LEFT/RIGHT:FIELD  A+L/R:+-1  A+U/D:+-10  TAB:SCREEN");
 }
 
 
@@ -2353,8 +2353,16 @@ std::vector<ScreenRow> soundRows(
     const bool isSampler = track.instrument == pocket::InstrumentType::Sampler;
     const bool isMidi = track.instrument == pocket::InstrumentType::Midi;
     const bool internal = !isMidi;
-    const bool isPlaits =
-        isSynth && (track.synth.engineType == pocket::SynthEngineType::Plaits);
+    const auto engine = track.synth.engineType;
+    const bool hasModels =
+        isSynth && engine != pocket::SynthEngineType::BasicVa;
+    const bool rings = engine == pocket::SynthEngineType::Rings;
+    const char* morphLabel = rings ? "DAMPING" : "MORPH";
+    const char* timbreLabel = rings ? "BRIGHT" : "TIMBRE";
+    const char* colorLabel =
+        rings ? "STRUCT"
+              : (engine == pocket::SynthEngineType::Plaits ? "HARMONIC"
+                                                          : "COLOR");
 
     return {{"ATTACK",
              formatNumber("%.0f MS", track.envelope.attackSeconds * 1000.0),
@@ -2368,29 +2376,32 @@ std::vector<ScreenRow> soundRows(
              BarMode::Unipolar, cutoffRatio, track.filter.enabled,
              internal && track.filter.enabled},
             {"ENGINE",
-             track.synth.engineType == pocket::SynthEngineType::Plaits
-                 ? "PLAITS"
-                 : "VA",
+             engine == pocket::SynthEngineType::Plaits   ? "PLAITS"
+             : engine == pocket::SynthEngineType::Braids ? "BRAIDS"
+             : rings                                     ? "RINGS"
+                                                         : "VA",
              BarMode::Discrete,
-             track.synth.engineType == pocket::SynthEngineType::Plaits ? 1.0F
-                                                                      : 0.0F,
-             track.synth.engineType == pocket::SynthEngineType::Plaits,
+             static_cast<float>(engine) /
+                 static_cast<float>(pocket::SynthEngineTypeCount - 1),
+             engine != pocket::SynthEngineType::BasicVa,
              isSynth},
             {"MODEL",
              std::to_string(static_cast<int>(track.synth.model) + 1) + " " +
-                 pocket::audio::plaitsModelName(track.synth.model),
+                 pocket::audio::synthModelName(engine, track.synth.model),
              BarMode::Discrete,
              static_cast<float>(track.synth.model) /
-                 static_cast<float>(pocket::TrackSynthSettings::ModelCount - 1),
-             track.synth.engineType == pocket::SynthEngineType::Plaits,
-             isPlaits},
+                 static_cast<float>(
+                     std::max(1, pocket::synthModelCount(engine) - 1)),
+             hasModels,
+             hasModels},
             {"PITCH", formatNumber("%.0f HZ", track.synth.pitchHz),
              BarMode::Unipolar, pitchRatio, true, isSynth || isMidi},
-            {"MORPH", formatNumber("%.0f%%", track.synth.morph * 100.0),
-             BarMode::Unipolar, track.synth.morph, true, isSynth},
-            {"TIMBRE", formatNumber("%.0f%%", track.synth.timbre * 100.0),
+            {morphLabel, formatNumber("%.0f%%", track.synth.morph * 100.0),
+             BarMode::Unipolar, track.synth.morph, true,
+             isSynth && engine != pocket::SynthEngineType::Braids},
+            {timbreLabel, formatNumber("%.0f%%", track.synth.timbre * 100.0),
              BarMode::Unipolar, track.synth.timbre, true, isSynth},
-            {"COLOR", formatNumber("%.0f%%", track.synth.color * 100.0),
+            {colorLabel, formatNumber("%.0f%%", track.synth.color * 100.0),
              BarMode::Unipolar, track.synth.color, true, isSynth},
             {"SAMPLE", soundSampleLabel(samplePath), BarMode::None, 0.0F,
              isSampler, isSampler},
@@ -3669,7 +3680,7 @@ int runSdlApp(const AppOptions& options) {
                            width, height, vizH + 10,
                            selectedTrack.instrument, selectedTrack.muted, 2, 7,
                            trackBadge,
-                           "UP/DN:ROW  LEFT/RIGHT:COL  A/CTRL+LEFT/RIGHT:VALUE  Q/E:TRACK  TAB:SCREEN",
+                           "UP/DN:ROW  LEFT/RIGHT:COL  A+L/R:+-1  A+U/D:+-10  Q/E:TRACK  TAB:SCREEN",
                            transport);
                 drawSoundVisualizer(renderer, *palette, selectedTrack,
                                     ui.effects(), sequencer.isPlaying(),
@@ -3690,7 +3701,7 @@ int runSdlApp(const AppOptions& options) {
                            width, height, vizH + 10,
                            selectedTrack.instrument, selectedTrack.muted, 2, 6,
                            trackBadge,
-                           "UP/DN:ROW  LEFT/RIGHT:COL  A/CTRL+LEFT/RIGHT:VALUE  Q/E:TRACK  TAB:SCREEN",
+                           "UP/DN:ROW  LEFT/RIGHT:COL  A+L/R:+-1  A+U/D:+-10  Q/E:TRACK  TAB:SCREEN",
                            transport);
                 pocket::ui::LiveModulationState live;
                 const bool modPlaying = sequencer.isPlaying();

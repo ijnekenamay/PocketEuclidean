@@ -1,4 +1,5 @@
 #include "project/ProjectStore.h"
+#include "audio/PlaitsModels.h"
 #include "ui/UiController.h"
 
 #include <cstdio>
@@ -245,7 +246,7 @@ bool parseTrackLine(const std::string& key, std::istringstream& in,
         // only stored the four continuous parameters.
         int engineType = 0;
         int model = 0;
-        if (version >= 7 && !readInt(in, engineType, 0, 1)) {
+        if (version >= 7 && !readInt(in, engineType, 0, SynthEngineTypeCount - 1)) {
             return false;
         }
         if (version >= 9 && !readInt(in, model, 0,
@@ -267,6 +268,11 @@ bool parseTrackLine(const std::string& key, std::istringstream& in,
             track.synth.model = static_cast<std::uint8_t>(std::clamp(
                 static_cast<int>(std::floor(track.synth.morph * 15.0F)), 0,
                 TrackSynthSettings::ModelCount - 1));
+        }
+        if (version < 12 && track.synth.model < 16) {
+            // v12 replaced the home-made 16-model synth with the real
+            // Plaits engine list; keep the closest equivalent timbre.
+            track.synth.model = audio::LegacyPlaitsModelMap[track.synth.model];
         }
         return true;
     }

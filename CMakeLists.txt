@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(PocketEuclidean VERSION 0.2.0 LANGUAGES CXX)
+project(PocketEuclidean VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,12 +15,34 @@ if(PORTMASTER_BUILD)
     set(POCKET_BUILD_APP ON CACHE BOOL "" FORCE)
 endif()
 
+# Mutable Instruments DSP (MIT). See third_party/mutable/README.md.
+file(GLOB_RECURSE MUTABLE_DSP_SOURCES CONFIGURE_DEPENDS
+    third_party/mutable/stmlib/*.cc
+    third_party/mutable/plaits/*.cc
+    third_party/mutable/braids/*.cc
+    third_party/mutable/rings/*.cc)
+add_library(mutable_dsp STATIC ${MUTABLE_DSP_SOURCES})
+target_include_directories(mutable_dsp PUBLIC third_party/mutable)
+target_compile_definitions(mutable_dsp PUBLIC _USE_MATH_DEFINES)
+set_target_properties(mutable_dsp PROPERTIES
+    CXX_EXTENSIONS ON
+    POSITION_INDEPENDENT_CODE ON
+)
+# Vendored code: keep upstream sources untouched by our warning policy.
+if(MSVC)
+    target_compile_options(mutable_dsp PRIVATE /w)
+else()
+    target_compile_options(mutable_dsp PRIVATE -w)
+endif()
+
 add_library(pocket_euclidean
     src/audio/AdEnvelope.cpp
     src/audio/AudioCallbackProcessor.cpp
     src/audio/AudioParameterQueue.cpp
     src/audio/BasicVaVoice.cpp
+    src/audio/BraidsVoice.cpp
     src/audio/PlaitsVoice.cpp
+    src/audio/RingsVoice.cpp
     src/audio/MasterBus.cpp
     src/audio/Mixer.cpp
     src/audio/OnePoleLowPass.cpp
@@ -49,6 +71,7 @@ add_library(pocket_euclidean
     src/ui/UiController.cpp
 )
 target_include_directories(pocket_euclidean PUBLIC src)
+target_link_libraries(pocket_euclidean PUBLIC mutable_dsp)
 set_target_properties(pocket_euclidean PROPERTIES
     CXX_EXTENSIONS OFF
     POSITION_INDEPENDENT_CODE ON
